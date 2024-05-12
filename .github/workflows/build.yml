@@ -93,13 +93,13 @@ jobs:
         if: ${{ matrix.os.install-deps }}
         run: ${{ matrix.os.install-deps }}
 
-      - name: Install depot_tools
-        uses: eliemichel/dawn-prebuilt/.github/actions/setup-depot-tools@github
-
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.prebuild.outputs.chromium-hash }}
+
+      - name: Install depot_tools
+        uses: eliemichel/dawn-prebuilt/.github/actions/setup-depot-tools@github
 
       - name: Bootstrap the gclient configuration
         shell: bash
