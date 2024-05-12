@@ -24,7 +24,8 @@ runs:
         Expand-Archive $ZipFile -DestinationPath depot_tools -Force
 
         # Add to path
-        $env:Path = (Get-Location).Path + ';' + $env:Path
+        $env:Path = "$(Get-Location)\depot_tools;" + $env:Path
+        echo "$(Get-Location)\depot_tools" >> $GITHUB_PATH
 
         # Bootstrap Windows-specific tools (must be through cmd.exe according to instructions)
         cmd.exe /c gclient
@@ -39,4 +40,4 @@ runs:
         git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
 
         # Add to path
-        export PATH=$(pwd)/depot_tools:$PATH
+        echo "$(pwd)/depot_tools" >> $GITHUB_PATH
