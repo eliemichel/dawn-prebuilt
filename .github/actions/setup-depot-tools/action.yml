@@ -1,0 +1,42 @@
+name: setup-depot-tools
+description: Install Google's depot_tools (collection of development tools) following instructions from http://commondatastorage.googleapis.com/chrome-infra-docs/flat/depot_tools/docs/html/depot_tools_tutorial.html#_setting_up
+inputs:
+  wd:
+    description: Working directory
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: Install depot_tools (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        cd ${{ inputs.wd }}
+        $Url = "https://storage.googleapis.com/chrome-infra/depot_tools.zip"
+        $ZipFile = "depot_tools.zip"
+
+        # Download
+        Invoke-WebRequest -Uri $Url -OutFile $ZipFile
+
+        # Unzip
+        New-Item -ItemType Directory -Path depot_tools -Force
+        Expand-Archive $ZipFile -DestinationPath depot_tools -Force
+
+        # Add to path
+        $env:Path = (Get-Location).Path + ';' + $env:Path
+
+        # Bootstrap Windows-specific tools (must be through cmd.exe according to instructions)
+        cmd.exe /c gclient
+
+    - name: Install depot_tools (linux/macOS)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        cd ${{ inputs.wd }}
+        
+        # Download through git
+        git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+
+        # Add to path
+        export PATH=$(pwd)/depot_tools:$PATH

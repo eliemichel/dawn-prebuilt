@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       chromium-tag: ${{ steps.find-tag.outputs.chromium-tag }}
+      chromium-hash: ${{ steps.find-tag.outputs.chromium-hash }}
       mirror-tag: ${{ steps.find-tag.outputs.mirror-tag }}
       skip: ${{ steps.find-tag.outputs.skip }}
     steps:
@@ -35,7 +36,8 @@ jobs:
 
           # 'skip' is non empty if the new tag already exists
           echo "skip=$(grep -Fx refs/tags/$(cat new-mirror-tag) mirror-tags)" >> "$GITHUB_OUTPUT"
-          echo "chromium-tag=$(cat latest-chromium-hash)" >> "$GITHUB_OUTPUT"
+          echo "chromium-tag=$(cat latest-chromium-tag)" >> "$GITHUB_OUTPUT"
+          echo "chromium-hash=$(cat latest-chromium-hash)" >> "$GITHUB_OUTPUT"
           echo "mirror-tag=$(cat new-mirror-tag)" >> "$GITHUB_OUTPUT"
 
           # Log to stdout for debug
@@ -76,7 +78,11 @@ jobs:
             image: windows-latest
           - name: macos
             image: macos-latest
-        config: [ Debug, Release ]
+        config:
+          - name: debug
+            args: "is_debug=true"
+          - name: release
+            args: "is_debug=false"
 
     runs-on: ${{ matrix.os.image }}
     needs: [ prebuild, create-release ]
@@ -87,42 +93,36 @@ jobs:
         if: ${{ matrix.os.install-deps }}
         run: ${{ matrix.os.install-deps }}
 
-      - name: Install Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+      - name: Install depot_tools
+        uses: eliemichel/dawn-prebuilt/.github/actions/setup-depot-tools@github
 
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.prebuild.outputs.chromium-tag }}
+          ref: ${{ needs.prebuild.outputs.chromium-hash }}
+
+      - name: Bootstrap the gclient configuration
+        shell: bash
+        run: cp scripts/standalone.gclient .gclient
+
+      - name: Fetch external dependencies and toolchains with gclient
+        run: gclient sync
 
       - name: Configure
-        run: >
-          cmake
-          -B out
-          -DCMAKE_BUILD_TYPE=${{ matrix.config }}
-          -DCMAKE_INSTALL_PREFIX=out/install
-          -DDAWN_FETCH_DEPENDENCIES=ON
+        run: |
+          mkdir -p out/build
+          gn gen out/build --args="${{ matrix.config.args }}"
 
       - name: Build
-        run: >
-          cmake
-          --build out
-          --config ${{ matrix.config }}
-
-      - name: Install
-        run: >
-          cmake
-          --install out
-          --config ${{ matrix.config }}
+        run: |
+          autoninja -C out/build
 
       - name: Compress artifact
         uses: eliemichel/dawn-prebuilt/.github/actions/zip@github
         with:
-          name: dawn-${{ matrix.os.name }}-x64-${{ matrix.config }}
+          name: dawn-${{ matrix.os.name }}-x64-${{ matrix.config.name }}
           path: '*'
-          wd: out/install
+          wd: out/build
 
       - name: Upload to release
         env:
@@ -130,4 +130,4 @@ jobs:
         run: >
           gh release upload ${{ needs.prebuild.outputs.mirror-tag }}
           --repo=${{ github.repository }}
-          out/install/dawn-${{ matrix.os.name }}-x64-${{ matrix.config }}.zip
+          out/build/dawn-${{ matrix.os.name }}-x64-${{ matrix.config.name }}.zip
