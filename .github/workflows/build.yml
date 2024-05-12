@@ -78,11 +78,7 @@ jobs:
             image: windows-latest
           - name: macos
             image: macos-latest
-        config:
-          - name: debug
-            args: "is_debug=true"
-          - name: release
-            args: "is_debug=false"
+        config: [ Debug, Release ]
 
     runs-on: ${{ matrix.os.image }}
     needs: [ prebuild, create-release ]
@@ -93,36 +89,49 @@ jobs:
         if: ${{ matrix.os.install-deps }}
         run: ${{ matrix.os.install-deps }}
 
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.prebuild.outputs.chromium-hash }}
 
-      - name: Install depot_tools
-        uses: eliemichel/dawn-prebuilt/.github/actions/setup-depot-tools@github
-
-      - name: Bootstrap the gclient configuration
-        shell: bash
-        run: cp scripts/standalone.gclient .gclient
-
-      - name: Fetch external dependencies and toolchains with gclient
-        run: gclient sync
+      - name: Fetch dependencies
+        run: |
+          # Use custom fetch_dependencies script because the official one mises some new dependencies
+          git fetch origin github
+          git checkout github -- tools/fetch_dawn_dependencies.py
+          python tools/fetch_dawn_dependencies.py
 
       - name: Configure
-        run: |
-          mkdir -p out/build
-          gn gen out/build --args="${{ matrix.config.args }}"
+        run: >
+          cmake
+          -B out
+          -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+          -DCMAKE_INSTALL_PREFIX=out/install
+          -DDAWN_FETCH_DEPENDENCIES=ON
 
       - name: Build
-        run: |
-          autoninja -C out/build
+        run: >
+          cmake
+          --build out
+          --config ${{ matrix.config }}
+
+      - name: Install
+        run: >
+          cmake
+          --install out
+          --config ${{ matrix.config }}
 
       - name: Compress artifact
         uses: eliemichel/dawn-prebuilt/.github/actions/zip@github
         with:
-          name: dawn-${{ matrix.os.name }}-x64-${{ matrix.config.name }}
+          name: dawn-${{ matrix.os.name }}-x64-${{ matrix.config }}
           path: '*'
-          wd: out/build
+          wd: out/install
 
       - name: Upload to release
         env:
@@ -130,4 +139,4 @@ jobs:
         run: >
           gh release upload ${{ needs.prebuild.outputs.mirror-tag }}
           --repo=${{ github.repository }}
-          out/build/dawn-${{ matrix.os.name }}-x64-${{ matrix.config.name }}.zip
+          out/install/dawn-${{ matrix.os.name }}-x64-${{ matrix.config }}.zip
