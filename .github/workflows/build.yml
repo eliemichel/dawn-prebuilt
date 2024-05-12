@@ -19,7 +19,8 @@ jobs:
           # Get upstream chromium tags and our existing mirror release tags
           # NB: Unfortunately google/dawn repo does not mirror tags, so we must fetch them
           # from upstream and convert the ref to a commit hash.
-          git ls-remote --tags ${{ env.UPSTREAM_REMOTE }} chromium/\* > chromium-refs
+          # NB2: chromium/foo refs are actually branches, not tags
+          git ls-remote ${{ env.UPSTREAM_REMOTE }} chromium/\* > chromium-refs
           cat chromium-refs | cut -f2 > chromium-tags
           git ls-remote --tags https://github.com/${GITHUB_REPOSITORY}.git mirror/\* | cut -f2 > mirror-tags
 
