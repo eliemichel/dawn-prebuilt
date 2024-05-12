@@ -28,10 +28,10 @@ jobs:
           cat chromium-tags | sort -rV | head -n 1 | tail -c +11 > latest-chromium-tag
 
           # ...which would lead to a new matching mirror tag
-          echo mirror/$(cat latest-chromium-tag | tail -c +6) > new-mirror-tag
+          echo mirror/$(cat latest-chromium-tag | tail -c +11) > new-mirror-tag
 
           # We convert the tag into a commit hash
-          grep refs/tags/$(cat latest-chromium-tag) chromium-refs | cut -f1 > latest-chromium-hash
+          grep $(cat latest-chromium-tag) chromium-refs | cut -f1 > latest-chromium-hash
 
           # 'skip' is non empty if the new tag already exists
           echo "skip=$(grep -Fx refs/tags/$(cat new-mirror-tag) mirror-tags)" >> "$GITHUB_OUTPUT"
@@ -96,7 +96,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip' # caching pip dependencies
 
       - name: Checkout
         uses: actions/checkout@v4
