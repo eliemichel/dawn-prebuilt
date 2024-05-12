@@ -103,7 +103,7 @@ jobs:
         run: |
           # Use custom fetch_dependencies script because the official one mises some new dependencies
           git fetch origin github
-          git checkout github -- tools/fetch_dawn_dependencies.py
+          git checkout origin/github -- tools/fetch_dawn_dependencies.py
           python tools/fetch_dawn_dependencies.py
 
       - name: Configure
