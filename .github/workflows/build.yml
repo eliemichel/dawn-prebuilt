@@ -25,10 +25,10 @@ jobs:
           git ls-remote --tags https://github.com/${GITHUB_REPOSITORY}.git mirror/\* | cut -f2 > mirror-tags
 
           # We intend to build the latest available chromium tag...
-          cat chromium-tags | sort -rV | head -n 1 | tail -c +11 > latest-chromium-tag
+          cat chromium-tags | sort -rV | head -n 1 | tail -c +12 > latest-chromium-tag
 
           # ...which would lead to a new matching mirror tag
-          echo mirror/$(cat latest-chromium-tag | tail -c +11) > new-mirror-tag
+          echo mirror/$(cat latest-chromium-tag | tail -c +10) > new-mirror-tag
 
           # We convert the tag into a commit hash
           grep $(cat latest-chromium-tag) chromium-refs | cut -f1 > latest-chromium-hash
@@ -39,11 +39,6 @@ jobs:
           echo "mirror-tag=$(cat new-mirror-tag)" >> "$GITHUB_OUTPUT"
 
           # Log to stdout for debug
-          echo ===========
-          cat chromium-tags
-          echo ===========
-          cat mirror-tags
-          echo ===========
           echo "skip=$(grep -Fx refs/tags/$(cat new-mirror-tag) mirror-tags)"
           echo "chromium-tag=$(cat latest-chromium-tag)"
           echo "chromium-hash=$(cat latest-chromium-hash)"
@@ -76,7 +71,7 @@ jobs:
             image: ubuntu-latest
             install-deps: |
               sudo apt-get update -y
-              sudo apt-get install -y libxrandr-dev libxinerama-dev libxcursor-dev mesa-common-dev libx11-xcb-dev pkg-config nodejs npm
+              sudo apt-get install -y libxrandr-dev libxinerama-dev libxcursor-dev mesa-common-dev libx11-xcb-dev libxi-dev pkg-config nodejs npm
           - name: windows
             image: windows-latest
           - name: macos
