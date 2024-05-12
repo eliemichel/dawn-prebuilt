@@ -28,6 +28,16 @@ jobs:
           echo "chromium-tag=$(cat latest-chromium-tag)" >> "$GITHUB_OUTPUT"
           echo "mirror-tag=$(cat new-mirror-tag)" >> "$GITHUB_OUTPUT"
 
+          # Log to stdout for debug
+          echo ===========
+          cat chromium-tags
+          echo ===========
+          cat mirror-tags
+          echo ===========
+          echo "skip=$(grep -Fx refs/tags/$(cat new-mirror-tag) mirror-tags)"
+          echo "chromium-tag=$(cat latest-chromium-tag)"
+          echo "mirror-tag=$(cat new-mirror-tag)"
+
   create-release:
     if: ${{ !needs.prebuild.outputs.skip }}
     runs-on: ubuntu-latest
