@@ -1,0 +1,118 @@
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  prebuild:
+    runs-on: ubuntu-latest
+    outputs:
+      chromium-tag: ${{ steps.find-tag.outputs.chromium-tag }}
+      mirror-tag: ${{ steps.find-tag.outputs.mirror-tag }}
+      skip: ${{ steps.find-tag.outputs.skip }}
+    steps:
+      - name: Find latest tag
+        id: find-tag
+        run: |
+          # Get upstream chromium tags and our existing mirror release tags
+          git ls-remote --tags https://github.com/${GITHUB_REPOSITORY}.git chromium/\* | cut -f2 > chromium-tags
+          git ls-remote --tags https://github.com/${GITHUB_REPOSITORY}.git mirror/\* | cut -f2 > mirror-tags
+
+          # We intend to build the latest available chromium tag...
+          cat chromium-tags | sort -rV | head -n 1 | tail -c +11 > latest-chromium-tag
+
+          # ...which would lead to a new matching mirror tag
+          echo mirror/$(cat latest-chromium-tag | tail -c +6) > new-mirror-tag
+
+          # 'skip' is non empty if the new tag already exists
+          echo "skip=$(grep -Fx refs/tags/$(cat new-mirror-tag) mirror-tags)" >> "$GITHUB_OUTPUT"
+          echo "chromium-tag=$(cat latest-chromium-tag)" >> "$GITHUB_OUTPUT"
+          echo "mirror-tag=$(cat new-mirror-tag)" >> "$GITHUB_OUTPUT"
+
+  create-release:
+    if: ${{ !needs.prebuild.outputs.skip }}
+    runs-on: ubuntu-latest
+    needs: prebuild
+    permissions:
+      contents: write
+    steps:
+      - name: Create release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MIRROR_TAG: ${{ needs.prebuild.outputs.mirror-tag }}
+          CHROMIUM_TAG: ${{ needs.prebuild.outputs.chromium-tag }}
+        run: >
+          gh release create "$MIRROR_TAG"
+          --repo=${{ github.repository }}
+          --title="$CHROMIUM_TAG"
+          --notes="Automatic build of tag [$CHROMIUM_TAG](https://dawn.googlesource.com/dawn/+/refs/heads/$CHROMIUM_TAG)."
+
+  build-artifacts:
+    if: ${{ !needs.prebuild.outputs.skip }}
+    strategy:
+      matrix:
+        os:
+          - name: linux
+            image: ubuntu-latest
+            install-deps: |
+              sudo apt-get update -y
+              sudo apt-get install -y libxrandr-dev libxinerama-dev libxcursor-dev mesa-common-dev libx11-xcb-dev pkg-config nodejs npm
+          - name: windows
+            image: windows-latest
+          - name: macos
+            image: macos-latest
+        config: [ Debug, Release ]
+
+    runs-on: ${{ matrix.os.image }}
+    needs: [ prebuild, create-release ]
+    permissions:
+      contents: write
+    steps:
+      - name: Install dependencies
+        if: ${{ matrix.os.install-deps }}
+        run: ${{ matrix.os.install-deps }}
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip' # caching pip dependencies
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prebuild.outputs.chromium-tag }}
+
+      - name: Configure
+        run: >
+          cmake
+          -B out
+          -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+          -DCMAKE_INSTALL_PREFIX=out/install
+          -DDAWN_FETCH_DEPENDENCIES=ON
+
+      - name: Build
+        run: >
+          cmake
+          --build out
+          --config ${{ matrix.config }}
+
+      - name: Install
+        run: >
+          cmake
+          --install out
+          --config ${{ matrix.config }}
+
+      - name: Compress artifact
+        uses: eliemichel/dawn-prebuilt/.github/actions/zip@github
+        with:
+          name: dawn-${{ matrix.os.name }}-x64-${{ matrix.config }}
+          path: '*'
+          wd: out/install
+
+      - name: Upload to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release upload ${{ needs.prebuild.outputs.mirror-tag }}
+          --repo=${{ github.repository }}
+          out/install/dawn-${{ matrix.os.name }}-x64-${{ matrix.config }}.zip

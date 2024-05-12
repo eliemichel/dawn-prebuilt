@@ -1,0 +1,30 @@
+name: zip
+description: Create a zip archive
+inputs:
+  path:
+    description: Which files/directories to compress
+    required: true
+  name:
+    description: Name of the zip file (without trailing '.zip')
+    required: false
+    default: archive
+  wd:
+    description: Working directory
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: Zip file using PowerShell
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        cd ${{ inputs.wd }}
+        Compress-Archive -Path ${{ inputs.path }} -Destination ${{ inputs.name }}.zip
+
+    - name: Zip file using bash
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        cd ${{ inputs.wd }}
+        zip -r ${{ inputs.name }}.zip ${{ inputs.path }}
