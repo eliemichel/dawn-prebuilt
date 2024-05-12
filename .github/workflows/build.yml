@@ -2,6 +2,9 @@ on:
   workflow_call:
   workflow_dispatch:
 
+env:
+  UPSTREAM_REMOTE: https://dawn.googlesource.com/dawn
+
 jobs:
   prebuild:
     runs-on: ubuntu-latest
@@ -14,7 +17,10 @@ jobs:
         id: find-tag
         run: |
           # Get upstream chromium tags and our existing mirror release tags
-          git ls-remote --tags https://github.com/${GITHUB_REPOSITORY}.git chromium/\* | cut -f2 > chromium-tags
+          # NB: Unfortunately google/dawn repo does not mirror tags, so we must fetch them
+          # from upstream and convert the ref to a commit hash.
+          git ls-remote --tags ${{ env.UPSTREAM_REMOTE }} chromium/\* > chromium-refs
+          cat chromium-refs | cut -f2 > chromium-tags
           git ls-remote --tags https://github.com/${GITHUB_REPOSITORY}.git mirror/\* | cut -f2 > mirror-tags
 
           # We intend to build the latest available chromium tag...
@@ -23,9 +29,12 @@ jobs:
           # ...which would lead to a new matching mirror tag
           echo mirror/$(cat latest-chromium-tag | tail -c +6) > new-mirror-tag
 
+          # We convert the tag into a commit hash
+          grep refs/tags/$(cat latest-chromium-tag) chromium-refs | cut -f1 > latest-chromium-hash
+
           # 'skip' is non empty if the new tag already exists
           echo "skip=$(grep -Fx refs/tags/$(cat new-mirror-tag) mirror-tags)" >> "$GITHUB_OUTPUT"
-          echo "chromium-tag=$(cat latest-chromium-tag)" >> "$GITHUB_OUTPUT"
+          echo "chromium-tag=$(cat latest-chromium-hash)" >> "$GITHUB_OUTPUT"
           echo "mirror-tag=$(cat new-mirror-tag)" >> "$GITHUB_OUTPUT"
 
           # Log to stdout for debug
@@ -36,6 +45,7 @@ jobs:
           echo ===========
           echo "skip=$(grep -Fx refs/tags/$(cat new-mirror-tag) mirror-tags)"
           echo "chromium-tag=$(cat latest-chromium-tag)"
+          echo "chromium-hash=$(cat latest-chromium-hash)"
           echo "mirror-tag=$(cat new-mirror-tag)"
 
   create-release:
