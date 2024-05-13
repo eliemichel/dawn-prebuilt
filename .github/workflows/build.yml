@@ -99,12 +99,13 @@ jobs:
         with:
           ref: ${{ needs.prebuild.outputs.chromium-hash }}
 
-      - name: Fetch dependencies
+      - name: Apply patches
+        shell: bash
         run: |
-          # Use custom fetch_dependencies script because the official one mises some new dependencies
           git fetch origin github
+
+          # Use custom fetch_dependencies script because the official one mises some new dependencies
           git checkout origin/github -- tools/fetch_dawn_dependencies.py
-          python tools/fetch_dawn_dependencies.py
 
       - name: Configure
         run: >
@@ -112,6 +113,7 @@ jobs:
           -B out
           -DCMAKE_BUILD_TYPE=${{ matrix.config }}
           -DCMAKE_INSTALL_PREFIX=out/install
+          -DDAWN_ENABLE_INSTALL=ON
           -DDAWN_FETCH_DEPENDENCIES=ON
 
       - name: Build
