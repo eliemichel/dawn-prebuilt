@@ -114,7 +114,9 @@ jobs:
           -DCMAKE_BUILD_TYPE=${{ matrix.config }}
           -DCMAKE_INSTALL_PREFIX=out/install
           -DDAWN_ENABLE_INSTALL=ON
+          -DTINT_ENABLE_INSTALL=ON
           -DDAWN_FETCH_DEPENDENCIES=ON
+          -DBUILD_SHARED_LIBS=ON
 
       - name: Build
         run: >
