@@ -100,18 +100,18 @@ def main(args):
         'third_party/dxc',
         'third_party/dxheaders',
         'third_party/glfw',
-        'third_party/glslang/src',
         'third_party/jinja2',
         'third_party/khronos/EGL-Registry',
         'third_party/khronos/OpenGL-Registry',
-        'third_party/libprotobuf-mutator/src',
         'third_party/markupsafe',
-        'third_party/protobuf',
         'third_party/spirv-headers/src',
         'third_party/spirv-tools/src',
         'third_party/vulkan-headers/src',
         'third_party/vulkan-loader/src',
         'third_party/vulkan-utility-libraries/src',
+        'third_party/glslang/src',
+        'third_party/protobuf',
+        'third_party/libprotobuf-mutator/src',
     ]
 
     if args.use_test_deps:
