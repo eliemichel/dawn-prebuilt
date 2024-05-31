@@ -113,8 +113,10 @@ jobs:
           -B out
           -DCMAKE_BUILD_TYPE=${{ matrix.config }}
           -DCMAKE_INSTALL_PREFIX=out/install
+          -DBUILD_TESTING=OFF
           -DDAWN_ENABLE_INSTALL=ON
           -DTINT_ENABLE_INSTALL=ON
+          -DTINT_BUILD_TESTS=OFF
           -DDAWN_FETCH_DEPENDENCIES=ON
           -DBUILD_SHARED_LIBS=ON
 
