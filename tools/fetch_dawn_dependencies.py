@@ -112,11 +112,12 @@ def main(args):
         'third_party/glslang/src',
         'third_party/protobuf',
         'third_party/libprotobuf-mutator/src',
+        'third_party/googletest',
     ]
 
     if args.use_test_deps:
         required_submodules += [
-            'third_party/googletest',
+            #'third_party/googletest',  # already in requirements
         ]
 
     root_dir = Path(args.directory).resolve()
