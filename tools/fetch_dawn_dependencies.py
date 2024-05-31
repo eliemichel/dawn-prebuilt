@@ -103,6 +103,7 @@ def main(args):
         'third_party/jinja2',
         'third_party/khronos/EGL-Registry',
         'third_party/khronos/OpenGL-Registry',
+        'third_party/libprotobuf-mutator/src',
         'third_party/markupsafe',
         'third_party/glslang/src',
         'third_party/spirv-headers/src',
