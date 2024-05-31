@@ -111,13 +111,13 @@ def main(args):
         'third_party/vulkan-utility-libraries/src',
         'third_party/glslang/src',
         'third_party/protobuf',
-        'third_party/libprotobuf-mutator/src',
         'third_party/googletest',
+        'third_party/libprotobuf-mutator/src',
     ]
 
     if args.use_test_deps:
         required_submodules += [
-            #'third_party/googletest',  # already in requirements
+            #'third_party/googletest',  # already in requirements because needed by libprotobuf-mutator
         ]
 
     root_dir = Path(args.directory).resolve()
