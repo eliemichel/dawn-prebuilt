@@ -120,6 +120,10 @@ jobs:
           -DDAWN_FETCH_DEPENDENCIES=ON
           -DBUILD_SHARED_LIBS=ON
 
+      - name: Debug
+        shell: bash
+        run: find .
+
       - name: Build
         run: >
           cmake
