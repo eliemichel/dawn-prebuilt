@@ -119,7 +119,7 @@ jobs:
           -DTINT_ENABLE_INSTALL=ON
           -DTINT_BUILD_TESTS=OFF
           -DDAWN_FETCH_DEPENDENCIES=ON
-          -DBUILD_SHARED_LIBS=ON
+          -DBUILD_SHARED_LIBS=OFF
 
       - name: Debug
         shell: bash
