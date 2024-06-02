@@ -136,12 +136,14 @@ jobs:
           cmake
           --build out
           --config ${{ matrix.config }}
+          --target tint_api tint_cmd_tint_cmd dawn_glfw dawn_native
 
       - name: Install
         run: >
           cmake
           --install out
           --config ${{ matrix.config }}
+          --target tint_api tint_cmd_tint_cmd dawn_glfw dawn_native
 
       - name: Compress artifact
         uses: eliemichel/dawn-prebuilt/.github/actions/zip@github
