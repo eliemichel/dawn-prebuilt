@@ -108,6 +108,7 @@ jobs:
           git checkout origin/github -- tools/fetch_dawn_dependencies.py
           git checkout origin/github -- CMakeLists.txt
           git checkout origin/github -- third_party/CMakeLists.txt
+          git checkout origin/github -- src/tint/lang/glsl/writer/raise/BUILD.cmake
 
       - name: Configure
         run: >
