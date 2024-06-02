@@ -94,9 +94,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Ninja
-        uses: seanmiddleditch/gha-setup-ninja@master
-
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -112,6 +109,9 @@ jobs:
           git checkout origin/github -- CMakeLists.txt
           git checkout origin/github -- third_party/CMakeLists.txt
           git checkout origin/github -- src/tint/lang/glsl/writer/raise/BUILD.cmake
+
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@master
 
       - name: Configure
         run: >
