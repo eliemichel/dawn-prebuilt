@@ -108,7 +108,7 @@ jobs:
           git checkout origin/github -- tools/fetch_dawn_dependencies.py
           git checkout origin/github -- CMakeLists.txt
           git checkout origin/github -- third_party/CMakeLists.txt
-          git checkout origin/github -- src/tint/lang/glsl/writer/raise/BUILD.cmake
+          git checkout origin/github -- src/tint/CMakeLists.txt
 
       - name: Install Ninja
         uses: seanmiddleditch/gha-setup-ninja@master
@@ -136,14 +136,12 @@ jobs:
           cmake
           --build out
           --config ${{ matrix.config }}
-          --target tint_api tint_cmd_tint_cmd dawn_glfw dawn_native
 
       - name: Install
         run: >
           cmake
           --install out
           --config ${{ matrix.config }}
-          --target tint_api tint_cmd_tint_cmd dawn_glfw dawn_native
 
       - name: Compress artifact
         uses: eliemichel/dawn-prebuilt/.github/actions/zip@github
