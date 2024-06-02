@@ -94,6 +94,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@master
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -114,6 +117,7 @@ jobs:
         run: >
           cmake
           -B out
+          -G Ninja
           -DCMAKE_BUILD_TYPE=${{ matrix.config }}
           -DCMAKE_INSTALL_PREFIX=out/install
           -DBUILD_TESTING=OFF
