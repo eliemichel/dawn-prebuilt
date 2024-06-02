@@ -105,6 +105,7 @@ jobs:
           git fetch origin github
 
           # Use custom fetch_dependencies script because the official one mises some new dependencies
+          git checkout origin/github -- CMakeLists.txt
           git checkout origin/github -- tools/fetch_dawn_dependencies.py
 
       - name: Configure
