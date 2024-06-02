@@ -94,6 +94,10 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install ATL/MFC component in MSVC
+        if: runner.os == 'Windows'
+        uses: eliemichel/dawn-prebuilt/.github/actions/setup-msvc@github
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
