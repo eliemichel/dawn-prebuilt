@@ -112,7 +112,6 @@ def main(args):
         'third_party/glslang/src',
         'third_party/protobuf',
         'third_party/googletest',
-        'third_party/libprotobuf-mutator/src',
     ]
 
     if args.use_test_deps:
