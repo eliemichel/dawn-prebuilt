@@ -48,12 +48,15 @@ if (${DAWN_FETCH_DEPENDENCIES})
 endif ()
 
 if (EXISTS "${DAWN_PROTOBUF_DIR}/cmake")
+message(STATUS "############## Protobuf dir found in ${DAWN_PROTOBUF_DIR}/cmake")
   if (("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang") AND WIN32)
     set(protobuf_HAVE_BUILTIN_ATOMICS 1)
   endif()
 
   # Needs to come before SPIR-V Tools
   include("protobuf.cmake")
+  else()
+  message(STATUS "############## Protobuf dir NOT found in ${DAWN_PROTOBUF_DIR}/cmake")
 endif()
 
 if (NOT TARGET SPIRV-Headers)
