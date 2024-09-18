@@ -108,10 +108,11 @@ jobs:
           git fetch origin github
 
           # Use custom fetch_dependencies script because the official one mises some new dependencies
-          git checkout origin/github -- tools/fetch_dawn_dependencies.py
-          git checkout origin/github -- CMakeLists.txt
-          git checkout origin/github -- third_party/CMakeLists.txt
-          git checkout origin/github -- src/tint/CMakeLists.txt
+          # edit: deactivated for now
+          #git checkout origin/github -- tools/fetch_dawn_dependencies.py
+          #git checkout origin/github -- CMakeLists.txt
+          #git checkout origin/github -- third_party/CMakeLists.txt
+          #git checkout origin/github -- src/tint/CMakeLists.txt
 
       - name: Setup MSVC env variables
         if: runner.os == 'Windows'
