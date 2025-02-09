@@ -119,13 +119,13 @@ void GPUCommandEncoder::copyBufferToBuffer(Napi::Env env,
 }
 
 void GPUCommandEncoder::copyBufferToTexture(Napi::Env env,
-                                            interop::GPUImageCopyBuffer source,
-                                            interop::GPUImageCopyTexture destination,
+                                            interop::GPUTexelCopyBufferInfo source,
+                                            interop::GPUTexelCopyTextureInfo destination,
                                             interop::GPUExtent3D copySize) {
     Converter conv(env);
 
-    wgpu::ImageCopyBuffer src{};
-    wgpu::ImageCopyTexture dst{};
+    wgpu::TexelCopyBufferInfo src{};
+    wgpu::TexelCopyTextureInfo dst{};
     wgpu::Extent3D size{};
     if (!conv(src, source) ||       //
         !conv(dst, destination) ||  //
@@ -137,13 +137,13 @@ void GPUCommandEncoder::copyBufferToTexture(Napi::Env env,
 }
 
 void GPUCommandEncoder::copyTextureToBuffer(Napi::Env env,
-                                            interop::GPUImageCopyTexture source,
-                                            interop::GPUImageCopyBuffer destination,
+                                            interop::GPUTexelCopyTextureInfo source,
+                                            interop::GPUTexelCopyBufferInfo destination,
                                             interop::GPUExtent3D copySize) {
     Converter conv(env);
 
-    wgpu::ImageCopyTexture src{};
-    wgpu::ImageCopyBuffer dst{};
+    wgpu::TexelCopyTextureInfo src{};
+    wgpu::TexelCopyBufferInfo dst{};
     wgpu::Extent3D size{};
     if (!conv(src, source) ||       //
         !conv(dst, destination) ||  //
@@ -155,13 +155,13 @@ void GPUCommandEncoder::copyTextureToBuffer(Napi::Env env,
 }
 
 void GPUCommandEncoder::copyTextureToTexture(Napi::Env env,
-                                             interop::GPUImageCopyTexture source,
-                                             interop::GPUImageCopyTexture destination,
+                                             interop::GPUTexelCopyTextureInfo source,
+                                             interop::GPUTexelCopyTextureInfo destination,
                                              interop::GPUExtent3D copySize) {
     Converter conv(env);
 
-    wgpu::ImageCopyTexture src{};
-    wgpu::ImageCopyTexture dst{};
+    wgpu::TexelCopyTextureInfo src{};
+    wgpu::TexelCopyTextureInfo dst{};
     wgpu::Extent3D size{};
     if (!conv(src, source) ||       //
         !conv(dst, destination) ||  //

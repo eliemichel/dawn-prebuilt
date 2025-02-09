@@ -127,13 +127,13 @@ void GPUQueue::writeBuffer(Napi::Env env,
 }
 
 void GPUQueue::writeTexture(Napi::Env env,
-                            interop::GPUImageCopyTexture destination,
+                            interop::GPUTexelCopyTextureInfo destination,
                             interop::AllowSharedBufferSource data,
-                            interop::GPUImageDataLayout dataLayout,
+                            interop::GPUTexelCopyBufferLayout dataLayout,
                             interop::GPUExtent3D size) {
-    wgpu::ImageCopyTexture dst{};
+    wgpu::TexelCopyTextureInfo dst{};
     Converter::BufferSource src{};
-    wgpu::TextureDataLayout layout{};
+    wgpu::TexelCopyBufferLayout layout{};
     wgpu::Extent3D sz{};
     Converter conv(env);
     if (!conv(dst, destination) ||    //
@@ -147,8 +147,8 @@ void GPUQueue::writeTexture(Napi::Env env,
 }
 
 void GPUQueue::copyExternalImageToTexture(Napi::Env env,
-                                          interop::GPUImageCopyExternalImage source,
-                                          interop::GPUImageCopyTextureTagged destination,
+                                          interop::GPUCopyExternalImageSourceInfo source,
+                                          interop::GPUCopyExternalImageDestInfo destination,
                                           interop::GPUExtent3D copySize) {
     UNIMPLEMENTED(env);
 }

@@ -159,7 +159,7 @@ struct State {
         // Add the structure the holds the module-scope variable pointers to the function and record
         // it in the map. Entry points will create the structure, other functions will declare it as
         // a parameter.
-        if (func->Stage() != core::ir::Function::PipelineStage::kUndefined) {
+        if (func->IsEntryPoint()) {
             function_to_struct_value.Add(func, AddModuleVarsToEntryPoint(func, refs));
         } else {
             function_to_struct_value.Add(func, AddModuleVarsToFunction(func));
@@ -317,7 +317,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> ModuleScopeVars(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "ModuleScopeVars transform");
+    auto result = ValidateAndDumpIfNeeded(ir, "msl.ModuleScopeVars");
     if (result != Success) {
         return result.Failure();
     }

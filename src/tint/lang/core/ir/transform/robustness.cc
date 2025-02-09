@@ -309,7 +309,6 @@ struct State {
                 break;
             }
             case core::BuiltinFn::kTextureLoad: {
-                clamp_coords(1u);
                 uint32_t next_arg = 2u;
                 if (type::IsTextureArray(texture->Dim())) {
                     clamp_array_index(next_arg++);
@@ -317,6 +316,7 @@ struct State {
                 if (texture->IsAnyOf<type::SampledTexture, type::DepthTexture>()) {
                     clamp_level(next_arg++);
                 }
+                clamp_coords(1u);  // Must run after clamp_level
                 break;
             }
             case core::BuiltinFn::kTextureStore: {
@@ -381,7 +381,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> Robustness(Module& ir, const RobustnessConfig& config) {
-    auto result = ValidateAndDumpIfNeeded(ir, "Robustness transform");
+    auto result = ValidateAndDumpIfNeeded(ir, "core.Robustness");
     if (result != Success) {
         return result;
     }

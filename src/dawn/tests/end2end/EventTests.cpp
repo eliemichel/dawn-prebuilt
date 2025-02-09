@@ -29,6 +29,7 @@
 #include <webgpu/webgpu.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <utility>
 #include <vector>
@@ -51,23 +52,24 @@ wgpu::Device CreateExtraDevice(wgpu::Instance instance) {
         wgpu::GetProcAddress("wgpuAdapterRequestDevice"));
 
     wgpu::Adapter adapter2;
-    requestAdapter(
-        instance.Get(), nullptr,
-        [](WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView, void* userdata) {
-            ASSERT_EQ(status, WGPURequestAdapterStatus_Success);
-            *reinterpret_cast<wgpu::Adapter*>(userdata) = wgpu::Adapter::Acquire(adapter);
-        },
-        &adapter2);
+    requestAdapter(instance.Get(), nullptr,
+                   {nullptr, WGPUCallbackMode_AllowSpontaneous,
+                    [](WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView, void*,
+                       void* result) {
+                        *reinterpret_cast<wgpu::Adapter*>(result) = wgpu::Adapter::Acquire(adapter);
+                    },
+                    nullptr, &adapter2});
     DAWN_ASSERT(adapter2);
 
     wgpu::Device device2;
-    requestDevice(
-        adapter2.Get(), nullptr,
-        [](WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView, void* userdata) {
-            ASSERT_EQ(status, WGPURequestDeviceStatus_Success);
-            *reinterpret_cast<wgpu::Device*>(userdata) = wgpu::Device::Acquire(device);
-        },
-        &device2);
+    requestDevice(adapter2.Get(), nullptr,
+                  {nullptr, WGPUCallbackMode_AllowSpontaneous,
+                   [](WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView, void*,
+                      void* result) {
+                       ASSERT_EQ(status, WGPURequestDeviceStatus_Success);
+                       *reinterpret_cast<wgpu::Device*>(result) = wgpu::Device::Acquire(device);
+                   },
+                   nullptr, &device2});
     DAWN_ASSERT(device2);
 
     return device2;
@@ -146,7 +148,7 @@ class EventCompletionTests : public DawnTestWithParams<EventCompletionTestParams
 
     void UseSecondInstance() {
         wgpu::InstanceDescriptor desc;
-        desc.features.timedWaitAnyEnable = !UsesWire();
+        desc.capabilities.timedWaitAnyEnable = !UsesWire();
         std::tie(testInstance, testDevice) = CreateExtraInstance(&desc);
         testQueue = testDevice.GetQueue();
     }
@@ -496,14 +498,14 @@ TEST_P(WaitAnyTests, UnsupportedTimeout) {
         // When not using the wire, DawnTest will unconditionally set timedWaitAnyEnable since it's
         // useful for other tests. For this test, we need it to be false to test validation.
         wgpu::InstanceDescriptor desc;
-        desc.features.timedWaitAnyEnable = false;
+        desc.capabilities.timedWaitAnyEnable = false;
         std::tie(instance2, device2) = CreateExtraInstance(&desc);
     }
 
     // UnsupportedTimeout is still validated if no futures are passed.
     for (uint64_t timeout : {uint64_t(1), uint64_t(0), UINT64_MAX}) {
         ASSERT_EQ(instance2.WaitAny(0, nullptr, timeout),
-                  timeout > 0 ? wgpu::WaitStatus::UnsupportedTimeout : wgpu::WaitStatus::Success);
+                  timeout > 0 ? wgpu::WaitStatus::Error : wgpu::WaitStatus::Success);
     }
 
     for (uint64_t timeout : {uint64_t(1), uint64_t(0), UINT64_MAX}) {
@@ -515,7 +517,7 @@ TEST_P(WaitAnyTests, UnsupportedTimeout) {
             ASSERT_TRUE(status == wgpu::WaitStatus::Success ||
                         status == wgpu::WaitStatus::TimedOut);
         } else {
-            ASSERT_EQ(status, wgpu::WaitStatus::UnsupportedTimeout);
+            ASSERT_EQ(status, wgpu::WaitStatus::Error);
         }
     }
 }
@@ -533,7 +535,7 @@ TEST_P(WaitAnyTests, UnsupportedCount) {
         queue2 = queue;
     } else {
         wgpu::InstanceDescriptor desc;
-        desc.features.timedWaitAnyEnable = true;
+        desc.capabilities.timedWaitAnyEnable = true;
         std::tie(instance2, device2) = CreateExtraInstance(&desc);
         queue2 = device2.GetQueue();
     }
@@ -553,11 +555,11 @@ TEST_P(WaitAnyTests, UnsupportedCount) {
                             status == wgpu::WaitStatus::TimedOut);
             } else if (UsesWire()) {
                 // Wire doesn't support timeouts at all.
-                ASSERT_EQ(status, wgpu::WaitStatus::UnsupportedTimeout);
+                ASSERT_EQ(status, wgpu::WaitStatus::Error);
             } else if (count <= 64) {
                 ASSERT_EQ(status, wgpu::WaitStatus::Success);
             } else {
-                ASSERT_EQ(status, wgpu::WaitStatus::UnsupportedCount);
+                ASSERT_EQ(status, wgpu::WaitStatus::Error);
             }
         }
     }
@@ -580,7 +582,7 @@ TEST_P(WaitAnyTests, UnsupportedMixedSources) {
         queue3 = device3.GetQueue();
     } else {
         wgpu::InstanceDescriptor desc;
-        desc.features.timedWaitAnyEnable = true;
+        desc.capabilities.timedWaitAnyEnable = true;
         std::tie(instance2, device2) = CreateExtraInstance(&desc);
         queue2 = device2.GetQueue();
         device3 = CreateExtraDevice(instance2);
@@ -600,9 +602,9 @@ TEST_P(WaitAnyTests, UnsupportedMixedSources) {
                         status == wgpu::WaitStatus::TimedOut);
         } else if (UsesWire()) {
             // Wire doesn't support timeouts at all.
-            ASSERT_EQ(status, wgpu::WaitStatus::UnsupportedTimeout);
+            ASSERT_EQ(status, wgpu::WaitStatus::Error);
         } else {
-            ASSERT_EQ(status, wgpu::WaitStatus::UnsupportedMixedSources);
+            ASSERT_EQ(status, wgpu::WaitStatus::Error);
         }
     }
 }

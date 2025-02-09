@@ -92,6 +92,8 @@ set(private_headers
     "Features.h"
     "Format.h"
     "Forward.h"
+    "ImmediateConstantsLayout.h"
+    "ImmediateConstantsTracker.h"
     "IndirectDrawMetadata.h"
     "IndirectDrawValidationEncoder.h"
     "Instance.h"
@@ -200,6 +202,7 @@ set(sources
     "ExternalTexture.cpp"
     "Features.cpp"
     "Format.cpp"
+    "ImmediateConstantsTracker.cpp"
     "IndirectDrawMetadata.cpp"
     "IndirectDrawValidationEncoder.cpp"
     "Instance.cpp"
@@ -611,6 +614,10 @@ if (DAWN_ENABLE_OPENGL)
         "opengl/RenderPipelineGL.h"
         "opengl/SamplerGL.h"
         "opengl/ShaderModuleGL.h"
+        "opengl/SharedFenceEGL.h"
+        "opengl/SharedFenceGL.h"
+        "opengl/SharedTextureMemoryEGL.h"
+        "opengl/SharedTextureMemoryGL.h"
         "opengl/SwapChainEGL.h"
         "opengl/TextureGL.h"
         "opengl/UtilsEGL.h"
@@ -640,6 +647,10 @@ if (DAWN_ENABLE_OPENGL)
         "opengl/RenderPipelineGL.cpp"
         "opengl/SamplerGL.cpp"
         "opengl/ShaderModuleGL.cpp"
+        "opengl/SharedFenceEGL.cpp"
+        "opengl/SharedFenceGL.cpp"
+        "opengl/SharedTextureMemoryEGL.cpp"
+        "opengl/SharedTextureMemoryGL.cpp"
         "opengl/SwapChainEGL.cpp"
         "opengl/TextureGL.cpp"
         "opengl/UtilsEGL.cpp"
@@ -659,7 +670,7 @@ if (DAWN_ENABLE_VULKAN)
         "vulkan/BindGroupVk.h"
         "vulkan/BufferVk.h"
         "vulkan/CommandBufferVk.h"
-        "vulkan/CommandRecordingContext.h"
+        "vulkan/CommandRecordingContextVk.h"
         "vulkan/ComputePipelineVk.h"
         "vulkan/DescriptorSetAllocation.h"
         "vulkan/DescriptorSetAllocator.h"
@@ -704,6 +715,7 @@ if (DAWN_ENABLE_VULKAN)
         "vulkan/BufferVk.cpp"
         "vulkan/CommandBufferVk.cpp"
         "vulkan/ComputePipelineVk.cpp"
+        "vulkan/CommandRecordingContextVk.cpp"
         "vulkan/DescriptorSetAllocator.cpp"
         "vulkan/DeviceVk.cpp"
         "vulkan/FencedDeleter.cpp"
@@ -850,6 +862,7 @@ endif()
 if (DAWN_ENABLE_D3D12)
     if (DAWN_USE_BUILT_DXC)
         target_compile_definitions(dawn_native PRIVATE "DAWN_USE_BUILT_DXC")
+        target_compile_definitions(dawn_native_objects PRIVATE "DAWN_USE_BUILT_DXC")
         add_dependencies(dawn_native copy_dxil_dll)
     endif()
 endif()

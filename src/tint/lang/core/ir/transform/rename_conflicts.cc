@@ -40,6 +40,7 @@
 #include "src/tint/lang/core/ir/transform/rename_conflicts.h"
 #include "src/tint/lang/core/ir/validator.h"
 #include "src/tint/lang/core/ir/var.h"
+#include "src/tint/lang/core/type/array.h"
 #include "src/tint/lang/core/type/matrix.h"
 #include "src/tint/lang/core/type/pointer.h"
 #include "src/tint/lang/core/type/scalar.h"
@@ -225,6 +226,10 @@ struct State {
                                             tint::ToString(m->Rows()));
                     return m->Type();
                 },
+                [&](const core::type::Array* a) -> const core::type::Type* {
+                    EnsureResolvesToBuiltin("array");
+                    return a->ElemType();
+                },
                 [&](const core::type::Pointer* p) {
                     EnsureResolvesToBuiltin(tint::ToString(p->Access()));
                     EnsureResolvesToBuiltin(tint::ToString(p->AddressSpace()));
@@ -293,14 +298,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> RenameConflicts(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "RenameConflicts transform",
-                                          core::ir::Capabilities{
-                                              core::ir::Capability::kAllow8BitIntegers,
-                                              core::ir::Capability::kAllowPointersInStructures,
-                                              core::ir::Capability::kAllowVectorElementPointer,
-                                              core::ir::Capability::kAllowHandleVarsWithoutBindings,
-                                              core::ir::Capability::kAllowClipDistancesOnF32,
-                                          });
+    auto result = ValidateAndDumpIfNeeded(ir, "core.RenameConflicts", kRenameConflictsCapabilities);
     if (result != Success) {
         return result;
     }

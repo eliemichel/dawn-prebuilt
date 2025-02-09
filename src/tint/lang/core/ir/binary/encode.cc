@@ -83,7 +83,7 @@
 #include "src/tint/lang/core/type/storage_texture.h"
 #include "src/tint/lang/core/type/u32.h"
 #include "src/tint/lang/core/type/void.h"
-#include "src/tint/utils/constants/internal_limits.h"
+#include "src/tint/utils/internal_limits.h"
 #include "src/tint/utils/macros/compiler.h"
 #include "src/tint/utils/rtti/switch.h"
 
@@ -146,9 +146,9 @@ struct Encoder {
         }
         if (auto wg_size_in = fn_in->WorkgroupSize()) {
             auto& wg_size_out = *fn_out->mutable_workgroup_size();
-            wg_size_out.set_x((*wg_size_in)[0]);
-            wg_size_out.set_y((*wg_size_in)[1]);
-            wg_size_out.set_z((*wg_size_in)[2]);
+            wg_size_out.set_x(Value((*wg_size_in)[0]));
+            wg_size_out.set_y(Value((*wg_size_in)[1]));
+            wg_size_out.set_z(Value((*wg_size_in)[2]));
         }
         for (auto* param_in : fn_in->Params()) {
             fn_out->add_parameters(Value(param_in));
@@ -409,20 +409,24 @@ struct Encoder {
                 [&](const core::type::InputAttachment* i) {
                     TypeInputAttachment(*type_out.mutable_input_attachment(), i);
                 },
-                [&](const core::type::SubgroupMatrix* s) {
-                    switch (s->Kind()) {
-                        case core::SubgroupMatrixKind::kLeft:
-                            TypeSubgroupMatrix(*type_out.mutable_subgroup_matrix_left(), s);
-                            break;
-                        case core::SubgroupMatrixKind::kRight:
-                            TypeSubgroupMatrix(*type_out.mutable_subgroup_matrix_right(), s);
-                            break;
-                        case core::SubgroupMatrixKind::kResult:
-                            TypeSubgroupMatrix(*type_out.mutable_subgroup_matrix_result(), s);
-                            break;
-                        default:
-                            TINT_ICE() << "invalid subgroup matrix kind: " << ToString(s->Kind());
-                    }
+                [&]([[maybe_unused]] const core::type::SubgroupMatrix* s) {
+                    // TODO(crbug.com/348702031): Re-enable encoding SubgroupMatrix once it is fully
+                    // implemented
+                    Error() << "SubgroupMatrix is currently not implemented";
+                    //                    switch (s->Kind()) {
+                    //                        case core::SubgroupMatrixKind::kLeft:
+                    //                            TypeSubgroupMatrix(*type_out.mutable_subgroup_matrix_left(),
+                    //                            s); break;
+                    //                        case core::SubgroupMatrixKind::kRight:
+                    //                            TypeSubgroupMatrix(*type_out.mutable_subgroup_matrix_right(),
+                    //                            s); break;
+                    //                        case core::SubgroupMatrixKind::kResult:
+                    //                            TypeSubgroupMatrix(*type_out.mutable_subgroup_matrix_result(),
+                    //                            s); break;
+                    //                        default:
+                    //                            TINT_ICE() << "invalid subgroup matrix kind: " <<
+                    //                            ToString(s->Kind());
+                    //                    }
                 },
                 TINT_ICE_ON_NO_MATCH);
 
@@ -539,12 +543,13 @@ struct Encoder {
         sampler_out.set_kind(SamplerKind(sampler_in->Kind()));
     }
 
-    void TypeSubgroupMatrix(pb::TypeSubgroupMatrix& subgroup_matrix_out,
-                            const core::type::SubgroupMatrix* subgroup_matrix_in) {
-        subgroup_matrix_out.set_sub_type(Type(subgroup_matrix_in->Type()));
-        subgroup_matrix_out.set_columns(subgroup_matrix_in->Columns());
-        subgroup_matrix_out.set_rows(subgroup_matrix_in->Rows());
-    }
+    // TODO(crbug.com/348702031): Re-enable encoding SubgroupMatrix once it is fully implemented
+    //    void TypeSubgroupMatrix(pb::TypeSubgroupMatrix& subgroup_matrix_out,
+    //                            const core::type::SubgroupMatrix* subgroup_matrix_in) {
+    //        subgroup_matrix_out.set_sub_type(Type(subgroup_matrix_in->Type()));
+    //        subgroup_matrix_out.set_columns(subgroup_matrix_in->Columns());
+    //        subgroup_matrix_out.set_rows(subgroup_matrix_in->Rows());
+    //    }
 
     ////////////////////////////////////////////////////////////////////////////
     // Values
@@ -905,6 +910,8 @@ struct Encoder {
         switch (in) {
             case core::BuiltinValue::kPointSize:
                 return pb::BuiltinValue::point_size;
+            case core::BuiltinValue::kCullDistance:
+                return pb::BuiltinValue::cull_distance;
             case core::BuiltinValue::kFragDepth:
                 return pb::BuiltinValue::frag_depth;
             case core::BuiltinValue::kFrontFacing:
@@ -1233,6 +1240,14 @@ struct Encoder {
                 return pb::BuiltinFn::quad_swap_y;
             case core::BuiltinFn::kQuadSwapDiagonal:
                 return pb::BuiltinFn::quad_swap_diagonal;
+            case core::BuiltinFn::kSubgroupMatrixLoad:
+                return pb::BuiltinFn::subgroup_matrix_load;
+            case core::BuiltinFn::kSubgroupMatrixStore:
+                return pb::BuiltinFn::subgroup_matrix_store;
+            case core::BuiltinFn::kSubgroupMatrixMultiply:
+                return pb::BuiltinFn::subgroup_matrix_multiply;
+            case core::BuiltinFn::kSubgroupMatrixMultiplyAccumulate:
+                return pb::BuiltinFn::subgroup_matrix_multiply_accumulate;
             case core::BuiltinFn::kNone:
                 break;
         }

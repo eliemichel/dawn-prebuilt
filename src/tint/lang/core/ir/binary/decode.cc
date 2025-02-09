@@ -38,16 +38,17 @@
 #include "src/tint/lang/core/type/depth_multisampled_texture.h"
 #include "src/tint/lang/core/type/depth_texture.h"
 #include "src/tint/lang/core/type/external_texture.h"
+#include "src/tint/lang/core/type/function.h"
 #include "src/tint/lang/core/type/input_attachment.h"
 #include "src/tint/lang/core/type/invalid.h"
 #include "src/tint/lang/core/type/multisampled_texture.h"
 #include "src/tint/lang/core/type/sampled_texture.h"
 #include "src/tint/lang/core/type/storage_texture.h"
 #include "src/tint/lang/core/type/vector.h"
-#include "src/tint/utils/constants/internal_limits.h"
 #include "src/tint/utils/containers/hashset.h"
 #include "src/tint/utils/containers/transform.h"
 #include "src/tint/utils/diagnostic/diagnostic.h"
+#include "src/tint/utils/internal_limits.h"
 #include "src/tint/utils/macros/compiler.h"
 #include "src/tint/utils/result/result.h"
 #include "src/tint/utils/text/string.h"
@@ -237,7 +238,9 @@ struct Decoder {
     // Functions
     ////////////////////////////////////////////////////////////////////////////
     ir::Function* CreateFunction(const pb::Function&) {
-        return mod_out_.CreateValue<ir::Function>();
+        auto* result = mod_out_.CreateValue<ir::Function>();
+        result->SetType(mod_out_.Types().function());
+        return result;
     }
 
     void PopulateFunction(ir::Function* fn_out, const pb::Function& fn_in) {
@@ -255,7 +258,10 @@ struct Decoder {
         }
         if (fn_in.has_workgroup_size()) {
             auto& wg_size_in = fn_in.workgroup_size();
-            fn_out->SetWorkgroupSize(wg_size_in.x(), wg_size_in.y(), wg_size_in.z());
+            // TODO(dsinclair): When overrides are supported we should add support for generating
+            // override expressions here.
+            fn_out->SetWorkgroupSize(Value(wg_size_in.x()), Value(wg_size_in.y()),
+                                     Value(wg_size_in.z()));
         }
 
         Vector<FunctionParam*, 8> params_out;
@@ -679,15 +685,22 @@ struct Decoder {
                 return CreateTypeSampler(type_in.sampler());
             case pb::Type::KindCase::kInputAttachment:
                 return CreateTypeInputAttachment(type_in.input_attachment());
+                // TODO(crbug.com/348702031): Re-enable decoding SubgroupMatrix once it is fully
+                // implemented
+                //            case pb::Type::KindCase::kSubgroupMatrixLeft:
+                //                return CreateTypeSubgroupMatrix(SubgroupMatrixKind::kLeft,
+                //                                                type_in.subgroup_matrix_left());
+                //            case pb::Type::KindCase::kSubgroupMatrixRight:
+                //                return CreateTypeSubgroupMatrix(SubgroupMatrixKind::kRight,
+                //                                                type_in.subgroup_matrix_right());
+                //            case pb::Type::KindCase::kSubgroupMatrixResult:
+                //                return CreateTypeSubgroupMatrix(SubgroupMatrixKind::kResult,
+                //                                                type_in.subgroup_matrix_result());
             case pb::Type::KindCase::kSubgroupMatrixLeft:
-                return CreateTypeSubgroupMatrix(SubgroupMatrixKind::kLeft,
-                                                type_in.subgroup_matrix_left());
             case pb::Type::KindCase::kSubgroupMatrixRight:
-                return CreateTypeSubgroupMatrix(SubgroupMatrixKind::kRight,
-                                                type_in.subgroup_matrix_right());
             case pb::Type::KindCase::kSubgroupMatrixResult:
-                return CreateTypeSubgroupMatrix(SubgroupMatrixKind::kResult,
-                                                type_in.subgroup_matrix_result());
+                Error() << "SubgroupMatrix is currently not implemented";
+                return mod_out_.Types().invalid();
             case pb::Type::KindCase::KIND_NOT_SET:
                 break;
         }
@@ -755,6 +768,13 @@ struct Decoder {
             Error() << "struct must have a name";
             return mod_out_.Types().invalid();
         }
+
+        if (DAWN_UNLIKELY(struct_name.find('\0') != std::string::npos)) {
+            Error() << "structure name '" << struct_name
+                    << "' contains '\\0' before end of the string";
+            return mod_out_.Types().invalid();
+        }
+
         if (!struct_names_.Add(struct_name)) {
             Error() << "duplicate struct name: " << style::Type(struct_name);
             return mod_out_.Types().invalid();
@@ -768,6 +788,13 @@ struct Decoder {
                 Error() << "struct member must have a name";
                 return mod_out_.Types().invalid();
             }
+
+            if (DAWN_UNLIKELY(member_name.find('\0') != std::string::npos)) {
+                Error() << "member name '" << member_name
+                        << "' contains '\\0' before end of the string";
+                return mod_out_.Types().invalid();
+            }
+
             auto symbol = mod_out_.symbols.Register(member_name);
             auto* type = Type(member_in.type());
             auto index = static_cast<uint32_t>(members_out.Length());
@@ -899,13 +926,15 @@ struct Decoder {
         return mod_out_.Types().Get<type::InputAttachment>(sub_type);
     }
 
-    const type::SubgroupMatrix* CreateTypeSubgroupMatrix(
-        SubgroupMatrixKind kind,
-        const pb::TypeSubgroupMatrix& subgroup_matrix) {
-        return mod_out_.Types().Get<type::SubgroupMatrix>(kind, Type(subgroup_matrix.sub_type()),
-                                                          subgroup_matrix.rows(),
-                                                          subgroup_matrix.columns());
-    }
+    // TODO(crbug.com/348702031): Re-enable decoding SubgroupMatrix once it is fully implemented
+    //    const type::SubgroupMatrix* CreateTypeSubgroupMatrix(
+    //        SubgroupMatrixKind kind,
+    //        const pb::TypeSubgroupMatrix& subgroup_matrix) {
+    //        return mod_out_.Types().Get<type::SubgroupMatrix>(kind,
+    //                                                          Type(subgroup_matrix.sub_type()),
+    //                                                          subgroup_matrix.rows(),
+    //                                                          subgroup_matrix.columns());
+    //    }
 
     const type::Type* Type(size_t id) {
         if (DAWN_UNLIKELY(id >= types_.Length())) {
@@ -1380,6 +1409,8 @@ struct Decoder {
         switch (in) {
             case pb::BuiltinValue::point_size:
                 return core::BuiltinValue::kPointSize;
+            case pb::BuiltinValue::cull_distance:
+                return core::BuiltinValue::kCullDistance;
             case pb::BuiltinValue::frag_depth:
                 return core::BuiltinValue::kFragDepth;
             case pb::BuiltinValue::front_facing:
@@ -1709,6 +1740,14 @@ struct Decoder {
                 return core::BuiltinFn::kQuadSwapY;
             case pb::BuiltinFn::quad_swap_diagonal:
                 return core::BuiltinFn::kQuadSwapDiagonal;
+            case pb::BuiltinFn::subgroup_matrix_load:
+                return core::BuiltinFn::kSubgroupMatrixLoad;
+            case pb::BuiltinFn::subgroup_matrix_store:
+                return core::BuiltinFn::kSubgroupMatrixStore;
+            case pb::BuiltinFn::subgroup_matrix_multiply:
+                return core::BuiltinFn::kSubgroupMatrixMultiply;
+            case pb::BuiltinFn::subgroup_matrix_multiply_accumulate:
+                return core::BuiltinFn::kSubgroupMatrixMultiply;
 
             case pb::BuiltinFn::BuiltinFn_INT_MIN_SENTINEL_DO_NOT_USE_:
             case pb::BuiltinFn::BuiltinFn_INT_MAX_SENTINEL_DO_NOT_USE_:

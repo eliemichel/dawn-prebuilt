@@ -161,8 +161,7 @@ TEST_F(SpirvWriterTest, WorkgroupVar) {
 TEST_F(SpirvWriterTest, WorkgroupVar_LoadAndStore) {
     auto* v = mod.root_block->Append(b.Var("v", ty.ptr<workgroup, i32>()));
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute,
-                            std::array{1u, 1u, 1u});
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         auto* load = b.Load(v);
         auto* add = b.Add(ty.i32(), load, 1_i);
@@ -215,8 +214,7 @@ TEST_F(SpirvWriterTest, StorageVar_LoadAndStore) {
     v->SetBindingPoint(0, 0);
     mod.root_block->Append(v);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute,
-                            std::array{1u, 1u, 1u});
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         auto* load = b.Load(v);
         auto* add = b.Add(ty.i32(), load, 1_i);
@@ -245,8 +243,7 @@ TEST_F(SpirvWriterTest, StorageVar_WithVulkan) {
     v->SetBindingPoint(0, 0);
     mod.root_block->Append(v);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute,
-                            std::array{1u, 1u, 1u});
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         auto* load = b.Load(v);
         auto* add = b.Add(ty.i32(), load, 1_i);
@@ -307,11 +304,9 @@ TEST_F(SpirvWriterTest, StorageVar_WithVulkan) {
 
 TEST_F(SpirvWriterTest, StorageVar_Workgroup_WithVulkan) {
     auto* v = b.Var("v", ty.ptr<workgroup, i32, read_write>());
-    v->SetBindingPoint(0, 0);
     mod.root_block->Append(v);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute,
-                            std::array{1u, 1u, 1u});
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         auto* load = b.Load(v);
         auto* add = b.Add(ty.i32(), load, 1_i);
@@ -354,7 +349,7 @@ TEST_F(SpirvWriterTest, StorageVar_Workgroup_WithVulkan) {
 %foo_local_invocation_index_Input = OpVariable %_ptr_Input_uint Input   ; BuiltIn LocalInvocationIndex
        %void = OpTypeVoid
          %10 = OpTypeFunction %void %uint
-     %uint_0 = OpConstant %uint 0
+     %uint_1 = OpConstant %uint 1
        %bool = OpTypeBool
       %int_0 = OpConstant %int 0
      %uint_2 = OpConstant %uint 2
@@ -366,7 +361,7 @@ TEST_F(SpirvWriterTest, StorageVar_Workgroup_WithVulkan) {
   %foo_inner = OpFunction %void None %10
 %tint_local_index = OpFunctionParameter %uint
          %11 = OpLabel
-         %12 = OpIEqual %bool %tint_local_index %uint_0
+         %12 = OpULessThan %bool %tint_local_index %uint_1
                OpSelectionMerge %15 None
                OpBranchConditional %12 %16 %15
          %16 = OpLabel
@@ -394,8 +389,7 @@ TEST_F(SpirvWriterTest, StorageVar_WriteOnly) {
     v->SetBindingPoint(0, 0);
     mod.root_block->Append(v);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute,
-                            std::array{1u, 1u, 1u});
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         b.Store(v, 42_i);
         b.Return(func);
@@ -437,8 +431,7 @@ TEST_F(SpirvWriterTest, UniformVar_Load) {
     v->SetBindingPoint(0, 0);
     mod.root_block->Append(v);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute,
-                            std::array{1u, 1u, 1u});
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         auto* load = b.Load(v);
         b.Return(func);

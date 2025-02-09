@@ -73,7 +73,7 @@ struct State {
                                                                   return var == subgroup_size_mask;
                                                               });
         for (auto func : ir.functions) {
-            if (func->Stage() != core::ir::Function::PipelineStage::kUndefined) {
+            if (func->IsEntryPoint()) {
                 if (refs.TransitiveReferences(func).Contains(subgroup_size_mask)) {
                     SetSubgroupSizeMaskForEntryPoint(func);
                 }
@@ -160,7 +160,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> SimdBallot(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "SimdBallot transform");
+    auto result = ValidateAndDumpIfNeeded(ir, "msl.SimdBallot");
     if (result != Success) {
         return result.Failure();
     }

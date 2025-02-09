@@ -9,9 +9,8 @@ struct foo_outputs {
 
 
 RWByteAddressBuffer a : register(u0);
-static bool continue_execution = true;
 int foo_inner() {
-  continue_execution = false;
+  discard;
   int x = int(0);
   int v = int(0);
   a.InterlockedCompareExchange(int(0u), int(0), int(1), v);
@@ -25,9 +24,6 @@ int foo_inner() {
 
 foo_outputs foo() {
   foo_outputs v_2 = {foo_inner()};
-  if (!(continue_execution)) {
-    discard;
-  }
   return v_2;
 }
 

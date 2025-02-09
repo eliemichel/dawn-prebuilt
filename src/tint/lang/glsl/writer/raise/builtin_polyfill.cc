@@ -43,7 +43,6 @@
 #include "src/tint/lang/glsl/builtin_fn.h"
 #include "src/tint/lang/glsl/ir/builtin_call.h"
 #include "src/tint/lang/glsl/ir/member_builtin_call.h"
-#include "src/tint/lang/glsl/ir/ternary.h"
 
 namespace tint::glsl::writer::raise {
 namespace {
@@ -346,15 +345,17 @@ struct State {
         call->Destroy();
     }
 
-    // GLSL `bitCount` always returns an `i32` so we need to convert it. Convert to a `bitCount`
-    // call to make it clear this isn't `countOneBits`.
+    // GLSL `bitCount` always returns an `i32` so may need to be converted. Convert to a `bitCount`
     void CountOneBits(core::ir::Call* call) {
-        auto* result_ty = call->Result(0)->Type();
+        auto* call_ty = call->Result(0)->Type();
+        auto* bitcount_ty = ty.MatchWidth(ty.i32(), call_ty);
 
         b.InsertBefore(call, [&] {
-            auto* c = b.Call<glsl::ir::BuiltinCall>(ty.MatchWidth(ty.i32(), result_ty),
-                                                    glsl::BuiltinFn::kBitCount, call->Args()[0]);
-            b.ConvertWithResult(call->DetachResult(), c);
+            core::ir::Value* c = b.Call<glsl::ir::BuiltinCall>(
+                                      bitcount_ty, glsl::BuiltinFn::kBitCount, call->Args()[0])
+                                     ->Result(0);
+            c = b.InsertConvertIfNeeded(call_ty, c);
+            call->Result(0)->ReplaceAllUsesWith(c);
         });
         call->Destroy();
     }
@@ -527,7 +528,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> BuiltinPolyfill(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "BuiltinPolyfill transform");
+    auto result = ValidateAndDumpIfNeeded(ir, "glsl.BuiltinPolyfill");
     if (result != Success) {
         return result.Failure();
     }

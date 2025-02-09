@@ -28,6 +28,7 @@
 #include "src/tint/lang/hlsl/writer/raise/shader_io.h"
 
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <utility>
 
@@ -70,6 +71,11 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
     std::optional<uint32_t> num_workgroups_index;
     std::optional<uint32_t> first_clip_distance_index;
     std::optional<uint32_t> second_clip_distance_index;
+    Hashset<uint32_t, 4> truncated_indices;
+
+    // If set, points to a var of type struct with fields for offsets to apply to vertex_index and
+    // instance_index
+    core::ir::Var* tint_first_index_offset = nullptr;
 
     /// Constructor
     StateImpl(core::ir::Module& mod, core::ir::Function* f, const ShaderIOConfig& c)
@@ -110,6 +116,11 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
                 return 13;
             case core::BuiltinValue::kClipDistances:
                 return 14;
+            case core::BuiltinValue::kSubgroupInvocationId:
+            case core::BuiltinValue::kSubgroupSize:
+                // These are sorted, but don't actually end up as members. Value doesn't really
+                // matter, so just make it larger than the rest.
+                return std::numeric_limits<uint32_t>::max();
             default:
                 break;
         }
@@ -192,18 +203,22 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
         }
 
         Vector<MemberInfo, 4> input_data;
+        bool has_vertex_or_instance_index = false;
         for (uint32_t i = 0; i < inputs.Length(); ++i) {
-            // If subgroup invocation id or size, save the index for GetInput
+            // Save the index of certain builtins for GetIndex. Although struct members will not be
+            // added for these inputs, we still add entries to input_data so that other inputs with
+            // struct members can index input_indices properly in GetIndex.
             if (auto builtin = inputs[i].attributes.builtin) {
                 if (*builtin == core::BuiltinValue::kSubgroupInvocationId) {
                     subgroup_invocation_id_index = i;
-                    continue;
                 } else if (*builtin == core::BuiltinValue::kSubgroupSize) {
                     subgroup_size_index = i;
-                    continue;
                 } else if (*builtin == core::BuiltinValue::kNumWorkgroups) {
                     num_workgroups_index = i;
-                    continue;
+                } else if (*builtin == core::BuiltinValue::kVertexIndex) {
+                    has_vertex_or_instance_index = true;
+                } else if (*builtin == core::BuiltinValue::kInstanceIndex) {
+                    has_vertex_or_instance_index = true;
                 }
             }
 
@@ -211,6 +226,22 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
         }
 
         input_indices.Resize(input_data.Length());
+
+        if (config.first_index_offset_binding.has_value() && has_vertex_or_instance_index) {
+            // Create a FirstIndexOffset uniform buffer. GetInput will use this to offset the
+            // vertex/instance index.
+            TINT_ASSERT(func->IsVertex());
+            tint::Vector<tint::core::type::Manager::StructMemberDesc, 2> members;
+            auto* str = ty.Struct(ir.symbols.New("tint_first_index_offset_struct"),
+                                  {
+                                      {ir.symbols.New("vertex_index"), ty.u32(), {}},
+                                      {ir.symbols.New("instance_index"), ty.u32(), {}},
+                                  });
+            tint_first_index_offset = b.Var("tint_first_index_offset", uniform, str);
+            tint_first_index_offset->SetBindingPoint(config.first_index_offset_binding->group,
+                                                     config.first_index_offset_binding->binding);
+            ir.root_block->Append(tint_first_index_offset);
+        }
 
         // Sort the struct members to satisfy HLSL interfacing matching rules.
         // We use stable_sort so that two members with the same attributes maintain their relative
@@ -220,6 +251,14 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
 
         Vector<core::type::Manager::StructMemberDesc, 4> input_struct_members;
         for (auto& input : input_data) {
+            // Don't add members for certain builtins
+            if (input.idx == subgroup_invocation_id_index ||  //
+                input.idx == subgroup_size_index ||           //
+                input.idx == num_workgroups_index) {
+                // Invalid value, should not be indexed
+                input_indices[input.idx] = std::numeric_limits<uint32_t>::max();
+                continue;
+            }
             input_indices[input.idx] = static_cast<uint32_t>(input_struct_members.Length());
             input_struct_members.Push(input.member);
         }
@@ -294,16 +333,33 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
         }
 
         // Sort the struct members to satisfy HLSL interfacing matching rules.
-        std::sort(output_data.begin(), output_data.end(),
-                  [&](auto& x, auto& y) { return StructMemberComparator(x, y); });
+        // We use stable_sort so that two members with the same attributes maintain their relative
+        // ordering (e.g. kClipDistance).
+        std::stable_sort(output_data.begin(), output_data.end(),
+                         [&](auto& x, auto& y) { return StructMemberComparator(x, y); });
 
         output_indices.Resize(outputs.Length());
-        output_values.Resize(outputs.Length());
+        output_values.Resize(outputs.Length(), nullptr);
 
         Vector<core::type::Manager::StructMemberDesc, 4> output_struct_members;
         for (size_t i = 0; i < output_data.Length(); ++i) {
             output_indices[output_data[i].idx] = static_cast<uint32_t>(i);
+
+            // If we need to truncate this member, don't add it to the output struct
+            if (config.truncate_interstage_variables) {
+                if (auto loc = output_data[i].member.attributes.location) {
+                    if (!config.interstage_locations.test(*loc)) {
+                        truncated_indices.Add(output_data[i].idx);
+                        continue;
+                    }
+                }
+            }
+
             output_struct_members.Push(output_data[i].member);
+        }
+        if (output_struct_members.IsEmpty()) {
+            // All members were truncated
+            return ty.void_();
         }
 
         output_struct =
@@ -375,12 +431,27 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
 
         core::ir::Value* v = builder.Access(inputs[idx].type, input_param, u32(index))->Result(0);
 
-        // If this is an input position builtin we need to invert the 'w' component of the vector.
         if (inputs[idx].attributes.builtin == core::BuiltinValue::kPosition) {
+            // If this is an input position builtin we need to invert the 'w' component of the
+            // vector.
             auto* w = builder.Access(ty.f32(), v, 3_u);
             auto* div = builder.Divide(ty.f32(), 1.0_f, w);
             auto* swizzle = builder.Swizzle(ty.vec3<f32>(), v, {0, 1, 2});
-            v = builder.Construct(ty.vec4<f32>(), swizzle, div)->Results()[0];
+            v = builder.Construct(ty.vec4<f32>(), swizzle, div)->Result(0);
+        } else if (config.first_index_offset_binding.has_value() &&
+                   inputs[idx].attributes.builtin == core::BuiltinValue::kVertexIndex) {
+            // Apply vertex_index offset
+            TINT_ASSERT(tint_first_index_offset);
+            auto* vertex_index_offset =
+                builder.Access(ty.ptr<uniform, u32>(), tint_first_index_offset, 0_u);
+            v = builder.Add<u32>(v, builder.Load(vertex_index_offset))->Result(0);
+        } else if (config.first_index_offset_binding.has_value() &&
+                   inputs[idx].attributes.builtin == core::BuiltinValue::kInstanceIndex) {
+            // Apply instance_index offset
+            TINT_ASSERT(tint_first_index_offset);
+            auto* instance_index_offset =
+                builder.Access(ty.ptr<uniform, u32>(), tint_first_index_offset, 1_u);
+            v = builder.Add<u32>(v, builder.Load(instance_index_offset))->Result(0);
         }
 
         return v;
@@ -412,6 +483,12 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
 
     /// @copydoc ShaderIO::BackendState::SetOutput
     void SetOutput(core::ir::Builder& builder, uint32_t idx, core::ir::Value* value) override {
+        if (truncated_indices.Contains(idx)) {
+            // Leave this output value as nullptr
+            TINT_ASSERT(!output_values[output_indices[idx]]);
+            return;
+        }
+
         // If setting a ClipDistance output, build the initial value for one or both output values.
         if (idx == first_clip_distance_index) {
             auto index = output_indices[idx];
@@ -434,13 +511,20 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
         if (!output_struct) {
             return nullptr;
         }
+
+        if (truncated_indices.Count()) {
+            // Remove all truncated values, which are nullptr in output_values
+            output_values.EraseIf([](auto* v) { return v == nullptr; });
+        }
+
+        TINT_ASSERT(output_values.Length() == output_struct->Members().Length());
         return builder.Construct(output_struct, std::move(output_values))->Result(0);
     }
 };
 }  // namespace
 
 Result<SuccessType> ShaderIO(core::ir::Module& ir, const ShaderIOConfig& config) {
-    auto result = ValidateAndDumpIfNeeded(ir, "ShaderIO transform");
+    auto result = ValidateAndDumpIfNeeded(ir, "hlsl.ShaderIO");
     if (result != Success) {
         return result;
     }

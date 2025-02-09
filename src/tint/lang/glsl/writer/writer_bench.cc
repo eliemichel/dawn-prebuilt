@@ -28,12 +28,12 @@
 #include <string>
 
 #include "src/tint/cmd/bench/bench.h"
+#include "src/tint/lang/core/ir/transform/single_entry_point.h"
 #include "src/tint/lang/glsl/writer/helpers/generate_bindings.h"
 #include "src/tint/lang/glsl/writer/writer.h"
 #include "src/tint/lang/wgsl/ast/identifier.h"
 #include "src/tint/lang/wgsl/ast/module.h"
 #include "src/tint/lang/wgsl/ast/transform/manager.h"
-#include "src/tint/lang/wgsl/ast/transform/single_entry_point.h"
 #include "src/tint/lang/wgsl/inspector/inspector.h"
 #include "src/tint/lang/wgsl/reader/reader.h"
 
@@ -47,52 +47,43 @@ void GenerateGLSL(benchmark::State& state, std::string input_name) {
         return;
     }
 
-    // Generate the input program and generator options for each entry point.
-    std::vector<Program> programs;
-    std::vector<Options> options;
     std::vector<std::string> names;
-    tint::inspector::Inspector inspector(res->program);
-    for (auto ep : inspector.GetEntryPoints()) {
-        tint::glsl::writer::Options gen_options = {};
-        gen_options.bindings = tint::glsl::writer::GenerateBindings(res->program);
-        gen_options.bindings.texture_builtins_from_uniform.ubo_binding = {4u, 0u};
+    tint::glsl::writer::Options gen_options = {};
+    {
+        // Convert the AST program to an IR module, so that we can generating bindings data.
+        auto ir = tint::wgsl::reader::ProgramToLoweredIR(res->program);
+        if (ir != Success) {
+            state.SkipWithError(ir.Failure().reason.Str());
+            return;
+        }
+        gen_options.bindings = tint::glsl::writer::GenerateBindings(ir.Get());
 
-        auto textureBuiltinsFromUniformData = inspector.GetTextureQueries(ep.name);
-        if (!textureBuiltinsFromUniformData.empty()) {
-            for (size_t i = 0; i < textureBuiltinsFromUniformData.size(); ++i) {
-                const auto& info = textureBuiltinsFromUniformData[i];
-
-                // This is the unmodified binding point from the WGSL shader.
-                tint::BindingPoint srcBindingPoint{info.group, info.binding};
-                gen_options.bindings.texture_builtins_from_uniform.ubo_bindingpoint_ordering
-                    .emplace_back(srcBindingPoint);
+        // Get the list of entry point names.
+        for (auto func : ir->functions) {
+            if (func->IsEntryPoint()) {
+                names.push_back(ir->NameOf(func).Name());
             }
         }
-
-        // Run single entry point to strip the program down to a single entry point.
-        tint::ast::transform::Manager manager;
-        tint::ast::transform::DataMap inputs;
-        tint::ast::transform::DataMap outputs;
-        inputs.Add<tint::ast::transform::SingleEntryPoint::Config>(ep.name);
-        manager.Add<tint::ast::transform::SingleEntryPoint>();
-        auto program = manager.Run(res->program, inputs, outputs);
-
-        programs.push_back(std::move(program));
-        options.push_back(gen_options);
-        names.push_back(ep.name);
     }
 
     for (auto _ : state) {
-        for (uint32_t i = 0; i < programs.size(); i++) {
+        for (uint32_t i = 0; i < names.size(); i++) {
             // Convert the AST program to an IR module.
-            auto ir = tint::wgsl::reader::ProgramToLoweredIR(programs[i]);
+            auto ir = tint::wgsl::reader::ProgramToLoweredIR(res->program);
             if (ir != Success) {
                 state.SkipWithError(ir.Failure().reason.Str());
                 return;
             }
 
+            // Run single entry point to strip the program down to a single entry point.
+            auto single_result = core::ir::transform::SingleEntryPoint(ir.Get(), names[i]);
+            if (single_result != Success) {
+                state.SkipWithError(ir.Failure().reason.Str());
+                return;
+            }
+
             // Generate GLSL.
-            auto gen_res = Generate(ir.Get(), options[i], names[i]);
+            auto gen_res = Generate(ir.Get(), gen_options, names[i]);
             if (gen_res != Success) {
                 state.SkipWithError(gen_res.Failure().reason.Str());
             }

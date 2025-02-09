@@ -90,7 +90,6 @@ bool CanUseCopyResource(const TextureCopy& src, const TextureCopy& dst, const Ex
     // https://docs.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12graphicscommandlist-copyresource
     // In order to use D3D12's copy resource, the textures must be the same dimensions, and
     // the copy must be of the entire resource.
-    // TODO(dawn:129): Support 1D textures.
     return src.aspect == src.texture->GetFormat().aspects &&
            src.texture->GetDimension() == dst.texture->GetDimension() &&  //
            dst.texture->GetNumMipLevels() == 1 &&                         //
@@ -103,6 +102,12 @@ bool CanUseCopyResource(const TextureCopy& src, const TextureCopy& dst, const Ex
            copySize.height == srcSize.height &&    //
            copySize.depthOrArrayLayers == dstSize.depthOrArrayLayers &&  //
            copySize.depthOrArrayLayers == srcSize.depthOrArrayLayers;
+}
+
+bool CanUseCopyResource(CopyBufferToBufferCmd* copy) {
+    return copy->sourceOffset == 0 && copy->destinationOffset == 0 &&
+           copy->size == copy->source->GetSize() && copy->size == copy->destination->GetSize() &&
+           copy->source->GetAllocatedSize() == copy->destination->GetAllocatedSize();
 }
 
 void RecordWriteTimestampCmd(ID3D12GraphicsCommandList* commandList,
@@ -408,17 +413,16 @@ class BindGroupStateTracker : public BindGroupTrackerBase<false, uint64_t> {
 
   public:
     BindGroupStateTracker(Device* device, DescriptorHeapState* heapState)
-        : BindGroupTrackerBase(),
-          mDevice(device),
-          mHeapState(heapState),
-          mViewAllocator(device->GetViewShaderVisibleDescriptorAllocator()),
-          mSamplerAllocator(device->GetSamplerShaderVisibleDescriptorAllocator()) {}
+        : BindGroupTrackerBase(), mDevice(device), mHeapState(heapState) {}
 
     MaybeError Apply(CommandRecordingContext* commandContext) {
         BeforeApply();
 
         ID3D12GraphicsCommandList* commandList = commandContext->GetCommandList();
         UpdateRootSignatureIfNecessary(commandList);
+
+        auto& viewAllocator = mDevice->GetViewShaderVisibleDescriptorAllocator();
+        auto& samplerAllocator = mDevice->GetSamplerShaderVisibleDescriptorAllocator();
 
         // Bindgroups are allocated in shader-visible descriptor heaps which are managed by a
         // ringbuffer. There can be a single shader-visible descriptor heap of each type bound
@@ -431,8 +435,8 @@ class BindGroupStateTracker : public BindGroupTrackerBase<false, uint64_t> {
         bool didCreateBindGroupSamplers = true;
         for (BindGroupIndex index : IterateBitSet(mDirtyBindGroups)) {
             BindGroup* group = ToBackend(mBindGroups[index]);
-            didCreateBindGroupViews = group->PopulateViews(mViewAllocator);
-            didCreateBindGroupSamplers = group->PopulateSamplers(mDevice, mSamplerAllocator);
+            didCreateBindGroupViews = group->PopulateViews(viewAllocator);
+            didCreateBindGroupSamplers = group->PopulateSamplers(samplerAllocator);
             if (!didCreateBindGroupViews && !didCreateBindGroupSamplers) {
                 break;
             }
@@ -440,11 +444,11 @@ class BindGroupStateTracker : public BindGroupTrackerBase<false, uint64_t> {
 
         if (!didCreateBindGroupViews || !didCreateBindGroupSamplers) {
             if (!didCreateBindGroupViews) {
-                DAWN_TRY(mViewAllocator->AllocateAndSwitchShaderVisibleHeap());
+                DAWN_TRY(viewAllocator->AllocateAndSwitchShaderVisibleHeap());
             }
 
             if (!didCreateBindGroupSamplers) {
-                DAWN_TRY(mSamplerAllocator->AllocateAndSwitchShaderVisibleHeap());
+                DAWN_TRY(samplerAllocator->AllocateAndSwitchShaderVisibleHeap());
             }
 
             mDirtyBindGroupsObjectChangedOrIsDynamic |= mBindGroupLayoutsMask;
@@ -455,8 +459,8 @@ class BindGroupStateTracker : public BindGroupTrackerBase<false, uint64_t> {
 
             for (BindGroupIndex index : IterateBitSet(mBindGroupLayoutsMask)) {
                 BindGroup* group = ToBackend(mBindGroups[index]);
-                didCreateBindGroupViews = group->PopulateViews(mViewAllocator);
-                didCreateBindGroupSamplers = group->PopulateSamplers(mDevice, mSamplerAllocator);
+                didCreateBindGroupViews = group->PopulateViews(viewAllocator);
+                didCreateBindGroupSamplers = group->PopulateSamplers(samplerAllocator);
                 DAWN_ASSERT(didCreateBindGroupViews);
                 DAWN_ASSERT(didCreateBindGroupSamplers);
             }
@@ -522,6 +526,7 @@ class BindGroupStateTracker : public BindGroupTrackerBase<false, uint64_t> {
                     commandList->SetComputeRootShaderResourceView(parameterIndex, bufferLocation);
                 }
                 break;
+            case wgpu::BufferBindingType::BindingNotUsed:
             case wgpu::BufferBindingType::Undefined:
                 DAWN_UNREACHABLE();
         }
@@ -641,11 +646,6 @@ class BindGroupStateTracker : public BindGroupTrackerBase<false, uint64_t> {
     raw_ptr<DescriptorHeapState> mHeapState;
 
     PerBindGroup<D3D12_GPU_DESCRIPTOR_HANDLE> mBoundRootSamplerTables = {};
-
-    // TODO(https://crbug.com/dawn/2361): Rewrite those members with raw_ref<T>.
-    // This is currently failing with MSVC cl.exe compiler.
-    RAW_PTR_EXCLUSION MutexProtected<ShaderVisibleDescriptorAllocator>& mViewAllocator;
-    RAW_PTR_EXCLUSION MutexProtected<ShaderVisibleDescriptorAllocator>& mSamplerAllocator;
 };
 
 class DescriptorHeapState {
@@ -857,9 +857,14 @@ MaybeError CommandBuffer::RecordCommands(CommandRecordingContext* commandContext
                 srcBuffer->TrackUsageAndTransitionNow(commandContext, wgpu::BufferUsage::CopySrc);
                 dstBuffer->TrackUsageAndTransitionNow(commandContext, wgpu::BufferUsage::CopyDst);
 
-                commandList->CopyBufferRegion(
-                    dstBuffer->GetD3D12Resource(), copy->destinationOffset,
-                    srcBuffer->GetD3D12Resource(), copy->sourceOffset, copy->size);
+                if (CanUseCopyResource(copy)) {
+                    commandList->CopyResource(dstBuffer->GetD3D12Resource(),
+                                              srcBuffer->GetD3D12Resource());
+                } else {
+                    commandList->CopyBufferRegion(
+                        dstBuffer->GetD3D12Resource(), copy->destinationOffset,
+                        srcBuffer->GetD3D12Resource(), copy->sourceOffset, copy->size);
+                }
                 break;
             }
 
@@ -1403,7 +1408,7 @@ MaybeError CommandBuffer::SetupRenderPass(CommandRecordingContext* commandContex
                     device->GetRenderTargetViewAllocator()->AllocateTransientCPUDescriptors());
                 nullRTV = nullRTVAllocation.GetBaseDescriptor();
                 D3D12_RENDER_TARGET_VIEW_DESC nullRTVDesc;
-                nullRTVDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                nullRTVDesc.Format = GetNullRTVDXGIFormatForD3D12RenderPass();
                 nullRTVDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
                 nullRTVDesc.Texture2D.MipSlice = 0;
                 nullRTVDesc.Texture2D.PlaneSlice = 0;
@@ -1430,7 +1435,8 @@ MaybeError CommandBuffer::SetupRenderPass(CommandRecordingContext* commandContex
         device->GetD3D12Device()->CreateDepthStencilView(
             ToBackend(view->GetTexture())->GetD3D12Resource(), &viewDesc, baseDescriptor);
 
-        renderPassBuilder->SetDepthStencilView(baseDescriptor);
+        renderPassBuilder->SetDepthStencilView(baseDescriptor, attachmentInfo.depthReadOnly,
+                                               attachmentInfo.stencilReadOnly);
 
         const bool hasDepth = view->GetTexture()->GetFormat().HasDepth();
         const bool hasStencil = view->GetTexture()->GetFormat().HasStencil();

@@ -109,15 +109,14 @@ TEST_F(GlslWriter_BuiltinPolyfillTest, SelectVector) {
 }
 
 TEST_F(GlslWriter_BuiltinPolyfillTest, StorageBarrier) {
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    func->SetWorkgroupSize(1, 1, 1);
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         b.Call(ty.void_(), core::BuiltinFn::kStorageBarrier);
         b.Return(func);
     });
 
     auto* src = R"(
-%foo = @compute @workgroup_size(1, 1, 1) func():void {
+%foo = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B1: {
     %2:void = storageBarrier
     ret
@@ -127,7 +126,7 @@ TEST_F(GlslWriter_BuiltinPolyfillTest, StorageBarrier) {
     EXPECT_EQ(src, str());
 
     auto* expect = R"(
-%foo = @compute @workgroup_size(1, 1, 1) func():void {
+%foo = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B1: {
     %2:void = glsl.memoryBarrierBuffer
     %3:void = glsl.barrier
@@ -141,15 +140,14 @@ TEST_F(GlslWriter_BuiltinPolyfillTest, StorageBarrier) {
 }
 
 TEST_F(GlslWriter_BuiltinPolyfillTest, TextureBarrier) {
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    func->SetWorkgroupSize(1, 1, 1);
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         b.Call(ty.void_(), core::BuiltinFn::kTextureBarrier);
         b.Return(func);
     });
 
     auto* src = R"(
-%foo = @compute @workgroup_size(1, 1, 1) func():void {
+%foo = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B1: {
     %2:void = textureBarrier
     ret
@@ -159,7 +157,7 @@ TEST_F(GlslWriter_BuiltinPolyfillTest, TextureBarrier) {
     EXPECT_EQ(src, str());
 
     auto* expect = R"(
-%foo = @compute @workgroup_size(1, 1, 1) func():void {
+%foo = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B1: {
     %2:void = glsl.memoryBarrierImage
     %3:void = glsl.barrier
@@ -173,15 +171,14 @@ TEST_F(GlslWriter_BuiltinPolyfillTest, TextureBarrier) {
 }
 
 TEST_F(GlslWriter_BuiltinPolyfillTest, WorkgroupBarrier) {
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    func->SetWorkgroupSize(1, 1, 1);
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         b.Call(ty.void_(), core::BuiltinFn::kWorkgroupBarrier);
         b.Return(func);
     });
 
     auto* src = R"(
-%foo = @compute @workgroup_size(1, 1, 1) func():void {
+%foo = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B1: {
     %2:void = workgroupBarrier
     ret
@@ -191,7 +188,7 @@ TEST_F(GlslWriter_BuiltinPolyfillTest, WorkgroupBarrier) {
     EXPECT_EQ(src, str());
 
     auto* expect = R"(
-%foo = @compute @workgroup_size(1, 1, 1) func():void {
+%foo = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B1: {
     %2:void = glsl.barrier
     ret
@@ -205,11 +202,9 @@ TEST_F(GlslWriter_BuiltinPolyfillTest, WorkgroupBarrier) {
 
 TEST_F(GlslWriter_BuiltinPolyfillTest, AtomicCompareExchangeWeak) {
     auto* var = b.Var("v", workgroup, ty.atomic<i32>(), core::Access::kReadWrite);
-    var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    func->SetWorkgroupSize(1, 1, 1);
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         b.Let("x", b.Call(core::type::CreateAtomicCompareExchangeResult(ty, mod.symbols, ty.i32()),
                           core::BuiltinFn::kAtomicCompareExchangeWeak, var, 123_i, 345_i));
@@ -223,10 +218,10 @@ __atomic_compare_exchange_result_i32 = struct @align(4) {
 }
 
 $B1: {  # root
-  %v:ptr<workgroup, atomic<i32>, read_write> = var @binding_point(0, 0)
+  %v:ptr<workgroup, atomic<i32>, read_write> = var
 }
 
-%foo = @compute @workgroup_size(1, 1, 1) func():void {
+%foo = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
     %3:__atomic_compare_exchange_result_i32 = atomicCompareExchangeWeak %v, 123i, 345i
     %x:__atomic_compare_exchange_result_i32 = let %3
@@ -243,10 +238,10 @@ __atomic_compare_exchange_result_i32 = struct @align(4) {
 }
 
 $B1: {  # root
-  %v:ptr<workgroup, atomic<i32>, read_write> = var @binding_point(0, 0)
+  %v:ptr<workgroup, atomic<i32>, read_write> = var
 }
 
-%foo = @compute @workgroup_size(1, 1, 1) func():void {
+%foo = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
     %3:i32 = bitcast 123i
     %4:i32 = bitcast 345i
@@ -265,11 +260,9 @@ $B1: {  # root
 
 TEST_F(GlslWriter_BuiltinPolyfillTest, AtomicSub) {
     auto* var = b.Var("v", workgroup, ty.atomic<i32>(), core::Access::kReadWrite);
-    var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    func->SetWorkgroupSize(1, 1, 1);
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         b.Let("x", b.Call(ty.i32(), core::BuiltinFn::kAtomicSub, var, 123_i));
         b.Return(func);
@@ -277,10 +270,10 @@ TEST_F(GlslWriter_BuiltinPolyfillTest, AtomicSub) {
 
     auto* src = R"(
 $B1: {  # root
-  %v:ptr<workgroup, atomic<i32>, read_write> = var @binding_point(0, 0)
+  %v:ptr<workgroup, atomic<i32>, read_write> = var
 }
 
-%foo = @compute @workgroup_size(1, 1, 1) func():void {
+%foo = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
     %3:i32 = atomicSub %v, 123i
     %x:i32 = let %3
@@ -292,10 +285,10 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %v:ptr<workgroup, atomic<i32>, read_write> = var @binding_point(0, 0)
+  %v:ptr<workgroup, atomic<i32>, read_write> = var
 }
 
-%foo = @compute @workgroup_size(1, 1, 1) func():void {
+%foo = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
     %3:i32 = negation 123i
     %4:i32 = atomicAdd %v, %3
@@ -311,11 +304,9 @@ $B1: {  # root
 
 TEST_F(GlslWriter_BuiltinPolyfillTest, AtomicSub_u32) {
     auto* var = b.Var("v", workgroup, ty.atomic<u32>(), core::Access::kReadWrite);
-    var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    func->SetWorkgroupSize(1, 1, 1);
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         b.Let("x", b.Call(ty.u32(), core::BuiltinFn::kAtomicSub, var, 123_u));
         b.Return(func);
@@ -323,10 +314,10 @@ TEST_F(GlslWriter_BuiltinPolyfillTest, AtomicSub_u32) {
 
     auto* src = R"(
 $B1: {  # root
-  %v:ptr<workgroup, atomic<u32>, read_write> = var @binding_point(0, 0)
+  %v:ptr<workgroup, atomic<u32>, read_write> = var
 }
 
-%foo = @compute @workgroup_size(1, 1, 1) func():void {
+%foo = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
     %3:u32 = atomicSub %v, 123u
     %x:u32 = let %3
@@ -338,10 +329,10 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %v:ptr<workgroup, atomic<u32>, read_write> = var @binding_point(0, 0)
+  %v:ptr<workgroup, atomic<u32>, read_write> = var
 }
 
-%foo = @compute @workgroup_size(1, 1, 1) func():void {
+%foo = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
     %3:u32 = glsl.atomicSub %v, 123u
     %x:u32 = let %3
@@ -356,11 +347,9 @@ $B1: {  # root
 
 TEST_F(GlslWriter_BuiltinPolyfillTest, AtomicLoad) {
     auto* var = b.Var("v", workgroup, ty.atomic<i32>(), core::Access::kReadWrite);
-    var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    func->SetWorkgroupSize(1, 1, 1);
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         b.Let("x", b.Call(ty.i32(), core::BuiltinFn::kAtomicLoad, var));
         b.Return(func);
@@ -368,10 +357,10 @@ TEST_F(GlslWriter_BuiltinPolyfillTest, AtomicLoad) {
 
     auto* src = R"(
 $B1: {  # root
-  %v:ptr<workgroup, atomic<i32>, read_write> = var @binding_point(0, 0)
+  %v:ptr<workgroup, atomic<i32>, read_write> = var
 }
 
-%foo = @compute @workgroup_size(1, 1, 1) func():void {
+%foo = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
     %3:i32 = atomicLoad %v
     %x:i32 = let %3
@@ -383,10 +372,10 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %v:ptr<workgroup, atomic<i32>, read_write> = var @binding_point(0, 0)
+  %v:ptr<workgroup, atomic<i32>, read_write> = var
 }
 
-%foo = @compute @workgroup_size(1, 1, 1) func():void {
+%foo = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
     %3:i32 = atomicOr %v, 0i
     %x:i32 = let %3
