@@ -343,6 +343,13 @@ ResultOrError<Ref<VulkanInstance>> VulkanInstance::Create(const InstanceBase* in
     return std::move(vulkanInstance);
 }
 
+// static
+ResultOrError<Ref<VulkanInstance>> VulkanInstance::Create(VkInstance instanceVk) {
+    Ref<VulkanInstance> vulkanInstance = AcquireRef(new VulkanInstance());
+    DAWN_TRY(vulkanInstance->Initialize(instanceVk));
+    return std::move(vulkanInstance);
+}
+
 MaybeError VulkanInstance::Initialize(const InstanceBase* instance, ICD icd) {
     // These environment variables need only be set while loading procs and gathering device
     // info.
@@ -415,6 +422,34 @@ MaybeError VulkanInstance::Initialize(const InstanceBase* instance, ICD icd) {
 
     VulkanGlobalKnobs usedGlobalKnobs = {};
     DAWN_TRY_ASSIGN(usedGlobalKnobs, CreateVkInstance(instance));
+    *static_cast<VulkanGlobalKnobs*>(&mGlobalInfo) = usedGlobalKnobs;
+
+    DAWN_TRY(mFunctions.LoadInstanceProcs(mInstance, mGlobalInfo));
+
+    if (usedGlobalKnobs.HasExt(InstanceExt::DebugUtils)) {
+        DAWN_TRY(RegisterDebugUtils());
+    }
+
+    DAWN_TRY_ASSIGN(mVkPhysicalDevices, GatherPhysicalDevices(mInstance, mFunctions));
+
+    return {};
+}
+
+MaybeError VulkanInstance::Initialize(VkInstance instanceVk) {
+    // These environment variables need only be set while loading procs and gathering device
+    // info.
+    ScopedEnvironmentVar vkICDFilenames;
+    ScopedEnvironmentVar vkLayerPath;
+
+    // TODO(elie): Find path from existing instance?
+    mVulkanLib.Open("vulkan-1.dll");
+
+    DAWN_TRY(mFunctions.LoadGlobalProcs(mVulkanLib));
+
+    DAWN_TRY_ASSIGN(mGlobalInfo, GatherGlobalInfo(mFunctions));
+    
+    VulkanGlobalKnobs usedGlobalKnobs = {};
+    DAWN_TRY_ASSIGN(usedGlobalKnobs, ImportVkInstance(instanceVk));
     *static_cast<VulkanGlobalKnobs*>(&mGlobalInfo) = usedGlobalKnobs;
 
     DAWN_TRY(mFunctions.LoadInstanceProcs(mInstance, mGlobalInfo));
@@ -533,6 +568,16 @@ ResultOrError<VulkanGlobalKnobs> VulkanInstance::CreateVkInstance(const Instance
     return usedKnobs;
 }
 
+ResultOrError<VulkanGlobalKnobs> VulkanInstance::ImportVkInstance(VkInstance instanceVk) {
+    VulkanGlobalKnobs usedKnobs = {};
+    // TODO(elie) Extract used knobs from existing instance
+
+    mInstance = instanceVk;
+    DAWN_INVALID_IF(mInstance == VK_NULL_HANDLE, "Failed to create VkInstance");
+
+    return usedKnobs;
+}
+
 MaybeError VulkanInstance::RegisterDebugUtils() {
     VkDebugUtilsMessengerCreateInfoEXT createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
@@ -574,8 +619,39 @@ Backend::~Backend() = default;
 
 std::vector<Ref<PhysicalDeviceBase>> Backend::DiscoverPhysicalDevices(
     const UnpackedPtr<RequestAdapterOptions>& options) {
+
     std::vector<Ref<PhysicalDeviceBase>> physicalDevices;
     InstanceBase* instance = GetInstance();
+
+    if (const auto* vkDesc = options.Get<DawnVkAdapterOptions>()) {
+        ICD icd = ICD::None;
+        VkInstance instanceVk = (VkInstance)vkDesc->instance;
+        VkPhysicalDevice physicalDeviceVk = (VkPhysicalDevice)vkDesc->physicalDevice;
+        //VkDevice deviceVk = (VkDevice)vkDesc->device;
+        if (mPhysicalDevices[icd].empty()) {
+            if (!mVulkanInstancesCreated[icd]) {
+                mVulkanInstancesCreated.set(icd);
+                [[maybe_unused]] bool hadError =
+                    instance->ConsumedErrorAndWarnOnce([&]() -> MaybeError {
+                        DAWN_TRY_ASSIGN(mVulkanInstances[icd],
+                                        VulkanInstance::Create(instanceVk));
+                        return {};
+                    }());
+            }
+            Ref<PhysicalDevice> physicalDevice =
+                AcquireRef(new PhysicalDevice(mVulkanInstances[icd].Get(), physicalDeviceVk));
+            if (!instance->ConsumedErrorAndWarnOnce(physicalDevice->Initialize())) {
+                mPhysicalDevices[icd].push_back(std::move(physicalDevice));
+            }
+        }
+        for (auto& physicalDevice : mPhysicalDevices[icd]) {
+            if (physicalDevice->SupportsFeatureLevel(options->featureLevel, instance)) {
+                physicalDevices.push_back(physicalDevice);
+            }
+        }
+        return physicalDevices;
+    }
+
     for (ICD icd : kICDs) {
 #if DAWN_PLATFORM_IS(MACOS)
         // On Mac, we don't expect non-Swiftshader Vulkan to be available.

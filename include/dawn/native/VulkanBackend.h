@@ -37,6 +37,20 @@
 
 namespace dawn::native::vulkan {
 
+/*
+// Can be chained in AdapterOptions to specify an existing device
+struct DAWN_NATIVE_EXPORT DawnVkAdapterOptions : wgpu::ChainedStruct {
+    VkInstance instance;
+    VkPhysicalDevice physicalDevice;
+    VkDevice device;
+};
+*/
+
+// Extension to create a WebGPU instance from an existing Vulkan device
+DAWN_NATIVE_EXPORT InstanceBase* CreateInstance(VkInstance instance,
+                                                VkPhysicalDevice physicalDevice,
+                                                VkDevice device);
+
 DAWN_NATIVE_EXPORT VkInstance GetInstance(WGPUDevice device);
 
 DAWN_NATIVE_EXPORT PFN_vkVoidFunction GetInstanceProcAddr(WGPUDevice device, const char* pName);

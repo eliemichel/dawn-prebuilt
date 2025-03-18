@@ -64,6 +64,7 @@ class Device;
 class VulkanInstance : public RefCounted {
   public:
     static ResultOrError<Ref<VulkanInstance>> Create(const InstanceBase* instance, ICD icd);
+    static ResultOrError<Ref<VulkanInstance>> Create(VkInstance instanceVk);
     ~VulkanInstance() override;
 
     const VulkanFunctions& GetFunctions() const;
@@ -81,7 +82,9 @@ class VulkanInstance : public RefCounted {
     VulkanInstance();
 
     MaybeError Initialize(const InstanceBase* instance, ICD icd);
+    MaybeError Initialize(VkInstance instanceVk);
     ResultOrError<VulkanGlobalKnobs> CreateVkInstance(const InstanceBase* instance);
+    ResultOrError<VulkanGlobalKnobs> ImportVkInstance(VkInstance instanceVk);
 
     MaybeError RegisterDebugUtils();
 

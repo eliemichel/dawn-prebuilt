@@ -38,8 +38,17 @@
 
 #include "dawn/native/vulkan/DeviceVk.h"
 #include "dawn/native/vulkan/TextureVk.h"
+#include "dawn/native/vulkan/BackendVk.h"
 
 namespace dawn::native::vulkan {
+
+InstanceBase* CreateInstance(VkInstance instance,
+                             VkPhysicalDevice physicalDevice,
+                             VkDevice device)
+{
+    // TODO
+    return nullptr;
+}
 
 VkInstance GetInstance(WGPUDevice device) {
     Device* backendDevice = ToBackend(FromAPI(device));
