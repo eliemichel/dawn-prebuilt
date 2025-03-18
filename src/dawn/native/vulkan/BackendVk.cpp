@@ -627,7 +627,6 @@ std::vector<Ref<PhysicalDeviceBase>> Backend::DiscoverPhysicalDevices(
         ICD icd = ICD::None;
         VkInstance instanceVk = (VkInstance)vkDesc->instance;
         VkPhysicalDevice physicalDeviceVk = (VkPhysicalDevice)vkDesc->physicalDevice;
-        //VkDevice deviceVk = (VkDevice)vkDesc->device;
         if (mPhysicalDevices[icd].empty()) {
             if (!mVulkanInstancesCreated[icd]) {
                 mVulkanInstancesCreated.set(icd);

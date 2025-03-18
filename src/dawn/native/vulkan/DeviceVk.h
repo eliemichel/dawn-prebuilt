@@ -172,6 +172,7 @@ class Device final : public DeviceBase {
         const SharedFenceDescriptor* baseDescriptor) override;
 
     ResultOrError<VulkanDeviceKnobs> CreateDevice(VkPhysicalDevice vkPhysicalDevice);
+    ResultOrError<VulkanDeviceKnobs> ImportDevice(VkPhysicalDevice vkPhysicalDevice, VkDevice device);
 
     MaybeError CheckDebugLayerAndGenerateErrors();
     void AppendDebugLayerMessages(ErrorData* error) override;

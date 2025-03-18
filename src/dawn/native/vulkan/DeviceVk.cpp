@@ -121,7 +121,13 @@ MaybeError Device::Initialize(const UnpackedPtr<DeviceDescriptor>& descriptor) {
         VkPhysicalDevice vkPhysicalDevice = ToBackend(GetPhysicalDevice())->GetVkPhysicalDevice();
 
         VulkanDeviceKnobs usedDeviceKnobs = {};
-        DAWN_TRY_ASSIGN(usedDeviceKnobs, CreateDevice(vkPhysicalDevice));
+        if (const auto vkDesc = descriptor.Get<DawnVkDeviceDescriptor>()) {
+            VkDevice deviceVk = (VkDevice)vkDesc->device;
+            // TODO(elie)
+            DAWN_TRY_ASSIGN(usedDeviceKnobs, ImportDevice(vkPhysicalDevice, deviceVk));
+        } else {
+            DAWN_TRY_ASSIGN(usedDeviceKnobs, CreateDevice(vkPhysicalDevice));
+        }
         *static_cast<VulkanDeviceKnobs*>(&mDeviceInfo) = usedDeviceKnobs;
 
         DAWN_TRY(functions->LoadDeviceProcs(GetVkInstance(), mVkDevice, mDeviceInfo));
@@ -632,6 +638,17 @@ ResultOrError<VulkanDeviceKnobs> Device::CreateDevice(VkPhysicalDevice vkPhysica
 
     DAWN_TRY(CheckVkSuccess(fn.CreateDevice(vkPhysicalDevice, &createInfo, nullptr, &mVkDevice),
                             "vkCreateDevice"));
+
+    return usedKnobs;
+}
+
+ResultOrError<VulkanDeviceKnobs> Device::ImportDevice(VkPhysicalDevice vkPhysicalDevice,
+                                                      VkDevice device) {
+    VulkanDeviceKnobs usedKnobs = {};
+
+    // TODO(elie): Populate usedKnobs from existing device
+
+    mVkDevice = device;
 
     return usedKnobs;
 }

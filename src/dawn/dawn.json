@@ -512,7 +512,15 @@
         "name": "physical device",
         "type": "void *",
         "default": "nullptr"
-      },
+      }
+    ]
+  },
+  "dawn vk device descriptor": {
+    "tags": [ "dawn", "native" ],
+    "category": "structure",
+    "chained": "in",
+    "chain roots": [ "device descriptor" ],
+    "members": [
       {
         "name": "device",
         "type": "void *",
@@ -7967,6 +7975,11 @@
       {
         "value": 65,
         "name": "dawn vk adapter options",
+        "tags": [ "dawn", "native" ]
+      },
+      {
+        "value": 66,
+        "name": "dawn vk device descriptor",
         "tags": [ "dawn", "native" ]
       }
     ]
