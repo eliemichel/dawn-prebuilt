@@ -50,6 +50,7 @@ import (
 	"dawn.googlesource.com/dawn/tools/src/fileutils"
 	"dawn.googlesource.com/dawn/tools/src/glob"
 	"dawn.googlesource.com/dawn/tools/src/match"
+	"dawn.googlesource.com/dawn/tools/src/oswrapper"
 	"dawn.googlesource.com/dawn/tools/src/transform"
 	"github.com/fatih/color"
 	"github.com/sergi/go-diff/diffmatchpatch"
@@ -67,13 +68,12 @@ const (
 	hlslDXC   = outputFormat("hlsl-dxc")
 	hlslDXCIR = outputFormat("hlsl-dxc-ir")
 	msl       = outputFormat("msl")
-	mslIR     = outputFormat("msl-ir")
 	spvasm    = outputFormat("spvasm")
 	wgsl      = outputFormat("wgsl")
 )
 
 // allOutputFormats holds all the supported outputFormats
-var allOutputFormats = []outputFormat{wgsl, spvasm, msl, mslIR, hlslDXC, hlslDXCIR, hlslFXC, hlslFXCIR, glsl}
+var allOutputFormats = []outputFormat{wgsl, spvasm, msl, hlslDXC, hlslDXCIR, hlslFXC, hlslFXCIR, glsl}
 
 // The root directory of the dawn project
 var dawnRoot = fileutils.DawnRoot()
@@ -99,7 +99,7 @@ var dirsWithNoPassExpectations = []string{
 }
 
 func main() {
-	if err := run(); err != nil {
+	if err := run(oswrapper.GetRealOSWrapper()); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
@@ -129,7 +129,10 @@ optional flags:`,
 	os.Exit(1)
 }
 
-func run() error {
+// TODO(crbug.com/344014313): Add unittests once fileutils is converted to
+// support dependency injection. This should also be broken up into multiple
+// functions.
+func run(fsReaderWriter oswrapper.FilesystemReaderWriter) error {
 	terminalWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		terminalWidth = 0
@@ -137,6 +140,7 @@ func run() error {
 
 	var formatList, ignore, dxcPath, fxcPath, tintPath, xcrunPath string
 	var maxTableWidth int
+	var useIrReader bool
 	numCPU := runtime.NumCPU()
 	verbose, generateExpected, generateSkip := false, false, false
 	flag.StringVar(&formatList, "format", "all", "comma separated list of formats to emit. Possible values are: all, wgsl, spvasm, msl, msl-ir, hlsl, hlsl-ir, hlsl-dxc, hlsl-dxc-ir, hlsl-fxc, hlsl-fxc-ir, glsl")
@@ -148,6 +152,7 @@ func run() error {
 	flag.BoolVar(&verbose, "verbose", false, "print all run tests, including rows that all pass")
 	flag.BoolVar(&generateExpected, "generate-expected", false, "create or update all expected outputs")
 	flag.BoolVar(&generateSkip, "generate-skip", false, "create or update all expected outputs that fail with SKIP")
+	flag.BoolVar(&useIrReader, "use-ir-reader", false, "force use of IR SPIR-V Reader")
 	flag.IntVar(&numCPU, "j", numCPU, "maximum number of concurrent threads to run tests")
 	flag.IntVar(&maxTableWidth, "table-width", terminalWidth, "maximum width of the results table")
 	flag.Usage = showUsage
@@ -211,7 +216,7 @@ func run() error {
 
 	// Glob the absFiles to test
 	for _, g := range globs {
-		globFiles, err := glob.Glob(g)
+		globFiles, err := glob.Glob(g, fsReaderWriter)
 		if err != nil {
 			return fmt.Errorf("Failed to glob files: %w", err)
 		}
@@ -283,7 +288,7 @@ func run() error {
 		color.Unset()
 		fmt.Printf(" validation ")
 		if *tool.path != "" {
-			fmt.Printf("ENABLED (" + *tool.path + ")")
+			fmt.Printf("ENABLED (%s)", *tool.path)
 		} else {
 			color.Set(color.FgRed)
 			fmt.Printf("DISABLED")
@@ -292,15 +297,16 @@ func run() error {
 		fmt.Println()
 
 		toolchainHash.Write([]byte(tool.name))
-		if s, err := os.Stat(*tool.path); err == nil {
+		if s, err := fsReaderWriter.Stat(*tool.path); err == nil {
 			toolchainHash.Write([]byte(s.ModTime().String()))
 			toolchainHash.Write([]byte(fmt.Sprint(s.Size())))
 		}
 	}
 	fmt.Println()
 
-	validationCache := loadValidationCache(fmt.Sprintf("%x", toolchainHash.Sum(nil)), verbose)
-	defer saveValidationCache(validationCache)
+	validationCache := loadValidationCache(
+		fmt.Sprintf("%x", toolchainHash.Sum(nil)), verbose, fsReaderWriter)
+	defer saveValidationCache(validationCache, fsReaderWriter)
 
 	// Build the list of results.
 	// These hold the chans used to report the job results.
@@ -324,11 +330,12 @@ func run() error {
 		generateExpected: generateExpected,
 		generateSkip:     generateSkip,
 		validationCache:  validationCache,
+		useIrReader:      useIrReader,
 	}
 	for cpu := 0; cpu < numCPU; cpu++ {
 		go func() {
 			for job := range pendingJobs {
-				job.run(runCfg)
+				job.run(runCfg, fsReaderWriter)
 			}
 		}()
 	}
@@ -336,7 +343,7 @@ func run() error {
 	// Issue the jobs...
 	go func() {
 		for i, file := range absFiles { // For each test file...
-			flags, err := parseFlags(file)
+			flags, err := parseFlags(file, fsReaderWriter)
 			if err != nil {
 				fmt.Println(file+" error:", err)
 				continue
@@ -408,20 +415,20 @@ func run() error {
 	cyan := color.New(color.FgCyan)
 
 	printFormatsHeader := func() {
-		fmt.Printf(strings.Repeat(" ", filenameColumnWidth))
-		fmt.Printf(" ┃ ")
+		fmt.Print(strings.Repeat(" ", filenameColumnWidth))
+		fmt.Print(" ┃ ")
 		for _, format := range formats {
-			cyan.Printf(alignCenter(format, formatWidth(format)))
-			fmt.Printf(" │ ")
+			cyan.Print(alignCenter(format, formatWidth(format)))
+			fmt.Print(" │ ")
 		}
 		fmt.Println()
 	}
 	printHorizontalLine := func() {
-		fmt.Printf(strings.Repeat("━", filenameColumnWidth))
-		fmt.Printf("━╋━")
+		fmt.Print(strings.Repeat("━", filenameColumnWidth))
+		fmt.Print("━╋━")
 		for _, format := range formats {
-			fmt.Printf(strings.Repeat("━", formatWidth(format)))
-			fmt.Printf("━┿━")
+			fmt.Print(strings.Repeat("━", formatWidth(format)))
+			fmt.Print("━┿━")
 		}
 		fmt.Println()
 	}
@@ -446,8 +453,8 @@ func run() error {
 			shortFile = "..." + file[filenameLength-filenameColumnWidth+3:]
 		}
 
-		fmt.Fprintf(row, alignRight(shortFile, filenameColumnWidth))
-		fmt.Fprintf(row, " ┃ ")
+		fmt.Fprint(row, alignRight(shortFile, filenameColumnWidth))
+		fmt.Fprint(row, " ┃ ")
 		for _, format := range formats {
 			columnWidth := formatWidth(format)
 			result := <-results[format]
@@ -467,25 +474,25 @@ func run() error {
 
 			switch result.code {
 			case pass:
-				green.Fprintf(row, alignCenter("PASS", columnWidth))
+				green.Fprint(row, alignCenter("PASS", columnWidth))
 				stats.numPass++
 			case fail:
-				red.Fprintf(row, alignCenter("FAIL", columnWidth))
+				red.Fprint(row, alignCenter("FAIL", columnWidth))
 				rowAllPassed = false
 				stats.numFail++
 			case skip:
-				yellow.Fprintf(row, alignCenter("SKIP", columnWidth))
+				yellow.Fprint(row, alignCenter("SKIP", columnWidth))
 				rowAllPassed = false
 				stats.numSkip++
 			case invalid:
-				yellow.Fprintf(row, alignCenter("INVALID", columnWidth))
+				yellow.Fprint(row, alignCenter("INVALID", columnWidth))
 				rowAllPassed = false
 				stats.numInvalid++
 			default:
-				fmt.Fprintf(row, alignCenter(result.code, columnWidth))
+				fmt.Fprint(row, alignCenter(result.code, columnWidth))
 				rowAllPassed = false
 			}
-			fmt.Fprintf(row, " │ ")
+			fmt.Fprint(row, " │ ")
 		}
 
 		if verbose || !rowAllPassed {
@@ -514,23 +521,23 @@ func run() error {
 			columnWidth := formatWidth(format)
 			count := num(statsByFmt[format])
 			if count > 0 {
-				col.Fprintf(row, alignLeft(count, columnWidth))
+				col.Fprint(row, alignLeft(count, columnWidth))
 				anyNonZero = true
 			} else {
-				fmt.Fprintf(row, alignLeft(count, columnWidth))
+				fmt.Fprint(row, alignLeft(count, columnWidth))
 			}
-			fmt.Fprintf(row, " │ ")
+			fmt.Fprint(row, " │ ")
 		}
 
 		if !anyNonZero {
 			return
 		}
-		col.Printf(alignRight(name, filenameColumnWidth))
-		fmt.Printf(" ┃ ")
+		col.Print(alignRight(name, filenameColumnWidth))
+		fmt.Print(" ┃ ")
 		fmt.Fprintln(color.Output, row)
 
-		col.Printf(strings.Repeat(" ", filenameColumnWidth))
-		fmt.Printf(" ┃ ")
+		col.Print(strings.Repeat(" ", filenameColumnWidth))
+		fmt.Print(" ┃ ")
 		for _, format := range formats {
 			columnWidth := formatWidth(format)
 			stats := statsByFmt[format]
@@ -541,7 +548,7 @@ func run() error {
 			} else {
 				fmt.Print(alignRight(percent, columnWidth))
 			}
-			fmt.Printf(" │ ")
+			fmt.Print(" │ ")
 		}
 		fmt.Println()
 	}
@@ -550,12 +557,12 @@ func run() error {
 	printStat(yellow, "INVALID", func(s *stats) int { return s.numInvalid })
 	printStat(red, "FAIL", func(s *stats) int { return s.numFail })
 
-	cyan.Printf(alignRight("TIME", filenameColumnWidth))
-	fmt.Printf(" ┃ ")
+	cyan.Print(alignRight("TIME", filenameColumnWidth))
+	fmt.Print(" ┃ ")
 	for _, format := range formats {
 		timeTaken := printDuration(statsByFmt[format].timeTaken)
-		cyan.Printf(alignLeft(timeTaken, formatWidth(format)))
-		fmt.Printf(" │ ")
+		cyan.Print(alignLeft(timeTaken, formatWidth(format)))
+		fmt.Print(" │ ")
 	}
 	fmt.Println()
 
@@ -662,18 +669,26 @@ type runConfig struct {
 	generateExpected bool
 	generateSkip     bool
 	validationCache  validationCache
+	useIrReader      bool
 }
 
 // Skips the path portion of FXC warning/error strings, matching the rest.
 // We use this to scrub the path to avoid generating needless diffs.
 var reFXCErrorStringHash = regexp.MustCompile(`(?:.*?)(\(.*?\): (?:warning|error).*)`)
 
-func (j job) run(cfg runConfig) {
+// TODO(crbug.com/344014313): Split this up into multiple functions and add
+// unittest coverage for functions that can be tested.
+func (j job) run(cfg runConfig, fsReaderWriter oswrapper.FilesystemReaderWriter) {
 	j.result <- func() status {
 		// expectedFilePath is the path to the expected output file for the given test
 		expectedFilePath := j.file + ".expected."
 
-		useIr := j.format == hlslDXCIR || j.format == hlslFXCIR || j.format == mslIR
+		// Only attempt to generate WGSL for SPVASM input files
+		if strings.HasSuffix(j.file, ".spvasm") && j.format != wgsl {
+			return status{code: skip, timeTaken: 0}
+		}
+
+		useIr := j.format == hlslDXCIR || j.format == hlslFXCIR
 
 		switch j.format {
 		case hlslDXC:
@@ -684,15 +699,13 @@ func (j job) run(cfg runConfig) {
 			expectedFilePath += "fxc.hlsl"
 		case hlslFXCIR:
 			expectedFilePath += "ir.fxc.hlsl"
-		case mslIR:
-			expectedFilePath += "ir.msl"
 		default:
 			expectedFilePath += string(j.format)
 		}
 
 		// Is there an expected output file? If so, load it.
 		expected, expectedFileExists := "", false
-		if content, err := os.ReadFile(expectedFilePath); err == nil {
+		if content, err := fsReaderWriter.ReadFile(expectedFilePath); err == nil {
 			expected = string(content)
 			expectedFileExists = true
 		}
@@ -711,6 +724,15 @@ func (j job) run(cfg runConfig) {
 			isSkipTimeoutTest = true
 		}
 
+		// If the test is known to fail and we are not regenerating expectations, just skip the test.
+		if isSkipTest && !cfg.generateExpected && !cfg.generateSkip {
+			if isSkipInvalidTest {
+				return status{code: invalid, timeTaken: 0}
+			} else {
+				return status{code: skip, timeTaken: 0}
+			}
+		}
+
 		expected = strings.ReplaceAll(expected, "\r\n", "\n")
 
 		outputFormat := strings.Split(string(j.format), "-")[0] // 'hlsl-fxc-ir' -> 'hlsl', etc.
@@ -727,6 +749,10 @@ func (j job) run(cfg runConfig) {
 
 		if useIr {
 			args = append(args, "--use-ir")
+		}
+
+		if cfg.useIrReader {
+			args = append(args, "--use-ir-reader")
 		}
 
 		// Append any skip-hashes, if they're found.
@@ -755,7 +781,7 @@ func (j job) run(cfg runConfig) {
 				args = append(args, "--fxc", cfg.fxcPath)
 				validate = true
 			}
-		case msl, mslIR:
+		case msl:
 			if cfg.xcrunPath != "" {
 				args = append(args, "--xcrun", cfg.xcrunPath)
 				validate = true
@@ -788,7 +814,7 @@ func (j job) run(cfg runConfig) {
 		}
 
 		saveExpectedFile := func(path string, content string) error {
-			return os.WriteFile(path, []byte(content), 0666)
+			return fsReaderWriter.WriteFile(path, []byte(content), 0666)
 		}
 
 		// Do not update expected if test is marked as SKIP: TIMEOUT
@@ -800,7 +826,7 @@ func (j job) run(cfg runConfig) {
 				// Test lives in a directory where we do not want to save PASS
 				// files, and there already exists an expectation file. Test has
 				// likely started passing. Delete the old expectation.
-				os.Remove(expectedFilePath)
+				fsReaderWriter.Remove(expectedFilePath)
 			}
 			matched = true // test passed and matched expectations
 		}
@@ -996,8 +1022,8 @@ type cmdLineFlags struct {
 
 // parseFlags looks for a `// flags:` or `// [format] flags:` header at the start of the file with
 // the given path, returning each of the parsed flags
-func parseFlags(path string) ([]cmdLineFlags, error) {
-	inputFile, err := os.Open(path)
+func parseFlags(path string, fsReader oswrapper.FilesystemReader) ([]cmdLineFlags, error) {
+	inputFile, err := fsReader.Open(path)
 	if err != nil {
 		return nil, err
 	}
@@ -1048,8 +1074,6 @@ func parseOutputFormat(s string) ([]outputFormat, error) {
 		return []outputFormat{spvasm}, nil
 	case "msl":
 		return []outputFormat{msl}, nil
-	case "msl-ir":
-		return []outputFormat{mslIR}, nil
 	case "hlsl":
 		return []outputFormat{hlslDXC, hlslFXC}, nil
 	case "hlsl-dxc":
@@ -1073,8 +1097,8 @@ func printDuration(d time.Duration) string {
 	sec := int(d.Seconds())
 	min := int(sec) / 60
 	hour := min / 60
-	min -= hour * 60
 	sec -= min * 60
+	min -= hour * 60
 	sb := &strings.Builder{}
 	if hour > 0 {
 		fmt.Fprintf(sb, "%dh", hour)
@@ -1123,15 +1147,19 @@ func validationCachePath() string {
 	return filepath.Join(fileutils.DawnRoot(), "test", "tint", "validation.cache")
 }
 
+// TODO(crbug.com/344014313): Add unittest coverage once DawnRoot() uses
+// dependency injection.
 // loadValidationCache attempts to load the validation cache.
 // Returns an empty cache if the file could not be loaded, or if toolchains have changed.
-func loadValidationCache(toolchainHash string, verbose bool) validationCache {
+func loadValidationCache(
+	toolchainHash string, verbose bool, fsReader oswrapper.FilesystemReader) validationCache {
+
 	out := validationCache{
 		toolchainHash: toolchainHash,
 		knownGood:     knownGoodHashes{},
 	}
 
-	file, err := os.Open(validationCachePath())
+	file, err := fsReader.Open(validationCachePath())
 	if err != nil {
 		if verbose {
 			fmt.Println(err)
@@ -1162,8 +1190,10 @@ func loadValidationCache(toolchainHash string, verbose bool) validationCache {
 	return out
 }
 
+// TODO(crbug.com/344014313): Add unittest coverage once DawnRoot() uses
+// dependency injection.
 // saveValidationCache saves the validation cache file.
-func saveValidationCache(vc validationCache) {
+func saveValidationCache(vc validationCache, fsWriter oswrapper.FilesystemWriter) {
 	out := ValidationCacheFile{
 		ToolchainHash: vc.toolchainHash,
 		KnownGood:     make([]ValidationCacheFileKnownGood, 0, len(vc.knownGood)),
@@ -1191,7 +1221,7 @@ func saveValidationCache(vc validationCache) {
 		return false
 	})
 
-	file, err := os.Create(validationCachePath())
+	file, err := fsWriter.Create(validationCachePath())
 	if err != nil {
 		fmt.Printf("WARNING: failed to save the validation cache file: %v\n", err)
 	}

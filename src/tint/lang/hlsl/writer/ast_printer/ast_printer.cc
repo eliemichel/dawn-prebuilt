@@ -76,8 +76,6 @@
 #include "src/tint/lang/wgsl/ast/transform/vectorize_scalar_matrix_initializers.h"
 #include "src/tint/lang/wgsl/ast/transform/zero_init_workgroup_memory.h"
 #include "src/tint/lang/wgsl/ast/variable_decl_statement.h"
-#include "src/tint/lang/wgsl/helpers/append_vector.h"
-#include "src/tint/lang/wgsl/helpers/check_supported_extensions.h"
 #include "src/tint/lang/wgsl/sem/block_statement.h"
 #include "src/tint/lang/wgsl/sem/call.h"
 #include "src/tint/lang/wgsl/sem/function.h"
@@ -90,6 +88,7 @@
 #include "src/tint/lang/wgsl/sem/value_conversion.h"
 #include "src/tint/lang/wgsl/sem/variable.h"
 #include "src/tint/utils/containers/map.h"
+#include "src/tint/utils/containers/transform.h"
 #include "src/tint/utils/ice/ice.h"
 #include "src/tint/utils/macros/compiler.h"
 #include "src/tint/utils/macros/defer.h"
@@ -106,6 +105,8 @@ namespace tint::hlsl::writer {
 namespace {
 
 const char kTempNamePrefix[] = "tint_tmp";
+
+static constexpr std::array<char, 4> kSwizzle = {'x', 'y', 'z', 'w'};
 
 const char* ImageFormatToRWtextureType(core::TexelFormat image_format) {
     switch (image_format) {
@@ -174,6 +175,158 @@ StringStream& operator<<(StringStream& s, const RegisterAndSpace& rs) {
         s << ", space" << rs.binding_point.group << ")";
     }
     return s;
+}
+
+struct VectorConstructorInfo {
+    const sem::Call* call = nullptr;
+    const sem::ValueConstructor* ctor = nullptr;
+    explicit operator bool() const { return call != nullptr; }
+};
+VectorConstructorInfo AsVectorConstructor(const sem::ValueExpression* expr) {
+    if (auto* call = expr->As<sem::Call>()) {
+        if (auto* ctor = call->Target()->As<sem::ValueConstructor>()) {
+            if (ctor->ReturnType()->Is<core::type::Vector>()) {
+                return {call, ctor};
+            }
+        }
+    }
+    return {};
+}
+
+const sem::ValueExpression* Zero(ProgramBuilder& b,
+                                 const core::type::Type* ty,
+                                 const sem::Statement* stmt) {
+    const ast::Expression* expr = nullptr;
+    if (ty->Is<core::type::I32>()) {
+        expr = b.Expr(0_i);
+    } else if (ty->Is<core::type::U32>()) {
+        expr = b.Expr(0_u);
+    } else if (ty->Is<core::type::F32>()) {
+        expr = b.Expr(0_f);
+    } else if (ty->Is<core::type::Bool>()) {
+        expr = b.Expr(false);
+    } else {
+        TINT_UNREACHABLE() << "unsupported vector element type: " << ty->TypeInfo().name;
+    }
+    auto* sem = b.create<sem::ValueExpression>(expr, ty, core::EvaluationStage::kRuntime, stmt,
+                                               /* constant_value */ nullptr,
+                                               /* has_side_effects */ false);
+    b.Sem().Add(expr, sem);
+    return sem;
+}
+
+const sem::Call* AppendVector(ProgramBuilder* b,
+                              const ast::Expression* vector_ast,
+                              const ast::Expression* scalar_ast) {
+    uint32_t packed_size;
+    const core::type::Type* packed_el_sem_ty;
+    auto* vector_sem = b->Sem().GetVal(vector_ast);
+    auto* scalar_sem = b->Sem().GetVal(scalar_ast);
+    auto* vector_ty = vector_sem->Type()->UnwrapRef();
+    if (auto* vec = vector_ty->As<core::type::Vector>()) {
+        packed_size = vec->Width() + 1;
+        packed_el_sem_ty = vec->Type();
+    } else {
+        packed_size = 2;
+        packed_el_sem_ty = vector_ty;
+    }
+
+    auto packed_el_ast_ty = Switch(
+        packed_el_sem_ty,  //
+        [&](const core::type::I32*) { return b->ty.i32(); },
+        [&](const core::type::U32*) { return b->ty.u32(); },
+        [&](const core::type::F32*) { return b->ty.f32(); },
+        [&](const core::type::Bool*) { return b->ty.bool_(); },  //
+        TINT_ICE_ON_NO_MATCH);
+
+    auto* statement = vector_sem->Stmt();
+
+    auto packed_ast_ty = b->ty.vec(packed_el_ast_ty, packed_size);
+    auto* packed_sem_ty = b->create<core::type::Vector>(packed_el_sem_ty, packed_size);
+
+    // If the coordinates are already passed in a vector constructor, with only
+    // scalar components supplied, extract the elements into the new vector
+    // instead of nesting a vector-in-vector.
+    // If the coordinates are a zero-constructor of the vector, then expand that
+    // to scalar zeros.
+    // The other cases for a nested vector constructor are when it is used
+    // to convert a vector of a different type, e.g. vec2<i32>(vec2<u32>()).
+    // In that case, preserve the original argument, or you'll get a type error.
+
+    Vector<const sem::ValueExpression*, 4> packed;
+    if (auto vc = AsVectorConstructor(vector_sem)) {
+        const auto num_supplied = vc.call->Arguments().Length();
+        if (num_supplied == 0) {
+            // Zero-value vector constructor. Populate with zeros
+            for (uint32_t i = 0; i < packed_size - 1; i++) {
+                auto* zero = Zero(*b, packed_el_sem_ty, statement);
+                packed.Push(zero);
+            }
+        } else if (num_supplied + 1 == packed_size) {
+            // All vector components were supplied as scalars.  Pass them through.
+            packed = vc.call->Arguments();
+        }
+    }
+    if (packed.IsEmpty()) {
+        // The special cases didn't occur. Use the vector argument as-is.
+        packed.Push(vector_sem);
+    }
+
+    if (packed_el_sem_ty != scalar_sem->Type()->UnwrapRef()) {
+        // Cast scalar to the vector element type
+        auto* scalar_cast_ast = b->Call(packed_el_ast_ty, scalar_ast);
+        auto* param = b->create<sem::Parameter>(nullptr, 0u, scalar_sem->Type()->UnwrapRef());
+        auto* scalar_cast_target = b->create<sem::ValueConversion>(packed_el_sem_ty, param,
+                                                                   core::EvaluationStage::kRuntime);
+        auto* scalar_cast_sem = b->create<sem::Call>(
+            scalar_cast_ast, scalar_cast_target, core::EvaluationStage::kRuntime,
+            Vector<const sem::ValueExpression*, 1>{scalar_sem}, statement,
+            /* constant_value */ nullptr, /* has_side_effects */ false);
+        b->Sem().Add(scalar_cast_ast, scalar_cast_sem);
+        packed.Push(scalar_cast_sem);
+    } else {
+        packed.Push(scalar_sem);
+    }
+
+    auto* ctor_ast =
+        b->Call(packed_ast_ty, tint::Transform(packed, [&](const sem::ValueExpression* expr) {
+                    return expr->Declaration();
+                }));
+    auto* ctor_target = b->create<sem::ValueConstructor>(
+        packed_sem_ty,
+        tint::Transform(packed,
+                        [&](const tint::sem::ValueExpression* arg, size_t i) {
+                            return b->create<sem::Parameter>(nullptr, static_cast<uint32_t>(i),
+                                                             arg->Type()->UnwrapRef());
+                        }),
+        core::EvaluationStage::kRuntime);
+    auto* ctor_sem = b->create<sem::Call>(ctor_ast, ctor_target, core::EvaluationStage::kRuntime,
+                                          std::move(packed), statement,
+                                          /* constant_value */ nullptr,
+                                          /* has_side_effects */ false);
+    b->Sem().Add(ctor_ast, ctor_sem);
+    return ctor_sem;
+}
+
+bool CheckSupportedExtensions(std::string_view writer_name,
+                              const ast::Module& module,
+                              diag::List& diags,
+                              VectorRef<wgsl::Extension> supported) {
+    Hashset<wgsl::Extension, 32> set;
+    for (auto ext : supported) {
+        set.Add(ext);
+    }
+
+    for (auto* enable : module.Enables()) {
+        for (auto* ext : enable->extensions) {
+            if (!set.Contains(ext->name)) {
+                diags.AddError(ext->source) << writer_name << " backend does not support extension "
+                                            << style::Code(ext->name);
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 }  // namespace
@@ -286,24 +439,26 @@ SanitizedResult Sanitize(const Program& in, const Options& options) {
     {
         PixelLocal::Config cfg;
         for (auto it : options.pixel_local.attachments) {
-            cfg.pls_member_to_rov_reg.Add(it.first, it.second);
-        }
-        for (auto it : options.pixel_local.attachment_formats) {
+            uint32_t member_index = it.first;
+            auto& attachment = it.second;
+
+            cfg.pls_member_to_rov_reg.Add(member_index, attachment.index);
+
             core::TexelFormat format = core::TexelFormat::kUndefined;
-            switch (it.second) {
-                case PixelLocalOptions::TexelFormat::kR32Sint:
+            switch (attachment.format) {
+                case PixelLocalAttachment::TexelFormat::kR32Sint:
                     format = core::TexelFormat::kR32Sint;
                     break;
-                case PixelLocalOptions::TexelFormat::kR32Uint:
+                case PixelLocalAttachment::TexelFormat::kR32Uint:
                     format = core::TexelFormat::kR32Uint;
                     break;
-                case PixelLocalOptions::TexelFormat::kR32Float:
+                case PixelLocalAttachment::TexelFormat::kR32Float:
                     format = core::TexelFormat::kR32Float;
                     break;
                 default:
                     TINT_ICE() << "missing texel format for pixel local storage attachment";
             }
-            cfg.pls_member_to_rov_format.Add(it.first, format);
+            cfg.pls_member_to_rov_format.Add(member_index, format);
         }
         cfg.rov_group_index = options.pixel_local.group_index;
         data.Add<PixelLocal::Config>(cfg);
@@ -340,8 +495,10 @@ SanitizedResult Sanitize(const Program& in, const Options& options) {
 
     // DemoteToHelper must come after CanonicalizeEntryPointIO, PromoteSideEffectsToDecl, and
     // ExpandCompoundAssignment.
-    // TODO(crbug.com/tint/1752): This is only necessary when FXC is being used.
-    manager.Add<ast::transform::DemoteToHelper>();
+    // TODO(crbug.com/42250787): This is only necessary when FXC is being used.
+    if (options.compiler == tint::hlsl::writer::Options::Compiler::kFXC) {
+        manager.Add<ast::transform::DemoteToHelper>();
+    }
 
     // ArrayLengthFromUniform must come after SimplifyPointers as it assumes that the form of the
     // array length argument is &var.array.
@@ -389,25 +546,37 @@ ASTPrinter::ASTPrinter(const Program& program) : builder_(ProgramBuilder::Wrap(p
 ASTPrinter::~ASTPrinter() = default;
 
 bool ASTPrinter::Generate() {
-    if (!tint::wgsl::CheckSupportedExtensions(
-            "HLSL", builder_.AST(), diagnostics_,
-            Vector{
-                wgsl::Extension::kChromiumDisableUniformityAnalysis,
-                wgsl::Extension::kChromiumExperimentalPixelLocal,
-                wgsl::Extension::kChromiumExperimentalPushConstant,
-                wgsl::Extension::kChromiumExperimentalSubgroups,
-                wgsl::Extension::kChromiumInternalGraphite,
-                wgsl::Extension::kClipDistances,
-                wgsl::Extension::kF16,
-                wgsl::Extension::kDualSourceBlending,
-                wgsl::Extension::kSubgroups,
-                wgsl::Extension::kSubgroupsF16,
-            })) {
+    if (!CheckSupportedExtensions("HLSL", builder_.AST(), diagnostics_,
+                                  Vector{
+                                      wgsl::Extension::kChromiumDisableUniformityAnalysis,
+                                      wgsl::Extension::kChromiumExperimentalPixelLocal,
+                                      wgsl::Extension::kChromiumExperimentalPushConstant,
+                                      wgsl::Extension::kChromiumInternalGraphite,
+                                      wgsl::Extension::kClipDistances,
+                                      wgsl::Extension::kF16,
+                                      wgsl::Extension::kDualSourceBlending,
+                                      wgsl::Extension::kSubgroups,
+                                  })) {
         return false;
     }
 
+    // Goldilocks logic to add lines between top level declarations
     const tint::TypeInfo* last_kind = nullptr;
     size_t last_padding_line = 0;
+    auto EmitPaddingLine = [&](const tint::TypeInfo* kind, bool is_function) {
+        // Don't emit double line breaks
+        if (current_buffer_->lines.size() == last_padding_line) {
+            last_kind = kind;
+            return;
+        }
+
+        if (is_function || (last_kind && last_kind != kind)) {
+            Line();
+            last_padding_line = current_buffer_->lines.size();
+            last_kind = kind;
+            global_insertion_point_ = current_buffer_->lines.size();
+        }
+    };
 
     auto* mod = builder_.Sem().Module();
     for (auto* decl : mod->DependencyOrderedDeclarations()) {
@@ -416,22 +585,12 @@ bool ASTPrinter::Generate() {
             continue;  // These are not emitted.
         }
 
-        // Emit a new line between declarations if the type of declaration has
-        // changed, or we're about to emit a function
-        auto* kind = &decl->TypeInfo();
-        if (current_buffer_->lines.size() != last_padding_line) {
-            if (last_kind && (last_kind != kind || decl->Is<ast::Function>())) {
-                Line();
-                last_padding_line = current_buffer_->lines.size();
-            }
-        }
-        last_kind = kind;
-
         global_insertion_point_ = current_buffer_->lines.size();
 
         bool ok = Switch(
             decl,
-            [&](const ast::Variable* global) {  //
+            [&](const ast::Variable* global) {
+                EmitPaddingLine(&decl->TypeInfo(), false);
                 return EmitGlobalVariable(global);
             },
             [&](const ast::Struct* str) {
@@ -446,11 +605,13 @@ bool ASTPrinter::Generate() {
                     // instead of true structure.
                     // Structures used as uniform buffer are read from an array of
                     // vectors instead of true structure.
+                    EmitPaddingLine(&decl->TypeInfo(), false);
                     return EmitStructType(current_buffer_, ty, str->members);
                 }
                 return true;
             },
             [&](const ast::Function* func) {
+                EmitPaddingLine(&decl->TypeInfo(), true);
                 if (func->IsEntryPoint()) {
                     return EmitEntryPointFunction(func);
                 }
@@ -1469,8 +1630,6 @@ bool ASTPrinter::EmitUniformBufferAccess(StringStream& out,
         }
     }
 
-    const char swizzle[] = {'x', 'y', 'z', 'w'};
-
     using Op = DecomposeMemoryAccess::Intrinsic::Op;
     using DataType = DecomposeMemoryAccess::Intrinsic::DataType;
     switch (intrinsic->op) {
@@ -1485,7 +1644,7 @@ bool ASTPrinter::EmitUniformBufferAccess(StringStream& out,
                 target << buffer;
                 if (scalar_offset_constant) {
                     target << "[" << (scalar_offset_index / 4) << "]."
-                           << swizzle[scalar_offset_index & 3];
+                           << kSwizzle[scalar_offset_index & 3];
                 } else {
                     target << "[" << scalar_offset_index_unified_expr << " / 4]["
                            << scalar_offset_index_unified_expr << " % 4]";
@@ -1535,7 +1694,7 @@ bool ASTPrinter::EmitUniformBufferAccess(StringStream& out,
                 out << "float16_t(f16tof32(((" << buffer;
                 if (scalar_offset_constant) {
                     out << "[" << (scalar_offset_index / 4) << "]."
-                        << swizzle[scalar_offset_index & 3];
+                        << kSwizzle[scalar_offset_index & 3];
                     // WGSL spec ensure little endian memory layout.
                     if (scalar_offset_bytes % 4 == 0) {
                         out << ") & 0xFFFF)";
@@ -2693,7 +2852,7 @@ bool ASTPrinter::EmitTextureCall(StringStream& out,
             // All of these builtins use the GetDimensions() method on the texture
             bool is_ms = texture_type->IsAnyOf<core::type::MultisampledTexture,
                                                core::type::DepthMultisampledTexture>();
-            int num_dimensions = 0;
+            unsigned int num_dimensions = 0;
             std::string swizzle;
 
             switch (builtin->Fn()) {
@@ -2789,7 +2948,8 @@ bool ASTPrinter::EmitTextureCall(StringStream& out,
                 // vector. As we've grown the vector by one element, we now need to
                 // swizzle to keep the result expression equivalent.
                 if (swizzle.empty()) {
-                    static constexpr const char* swizzles[] = {"", ".x", ".xy", ".xyz"};
+                    static constexpr std::array<const char*, 4> swizzles = {"", ".x", ".xy",
+                                                                            ".xyz"};
                     swizzle = swizzles[num_dimensions - 1];
                 }
             }
@@ -2826,15 +2986,14 @@ bool ASTPrinter::EmitTextureCall(StringStream& out,
                 if (num_dimensions == 1) {
                     pre << dims;
                 } else {
-                    static constexpr char xyzw[] = {'x', 'y', 'z', 'w'};
                     if (DAWN_UNLIKELY(num_dimensions < 0 || num_dimensions > 4)) {
                         TINT_ICE() << "vector dimensions are " << num_dimensions;
                     }
-                    for (int i = 0; i < num_dimensions; i++) {
+                    for (unsigned int i = 0; i < num_dimensions; i++) {
                         if (i > 0) {
                             pre << ", ";
                         }
-                        pre << dims << "." << xyzw[i];
+                        pre << dims << "." << kSwizzle[i];
                     }
                 }
 
@@ -2947,13 +3106,13 @@ bool ASTPrinter::EmitTextureCall(StringStream& out,
                                      zero, i32, core::EvaluationStage::kRuntime, stmt,
                                      /* constant_value */ nullptr,
                                      /* has_side_effects */ false));
-        auto* packed = tint::wgsl::AppendVector(&builder_, vector, zero);
+        auto* packed = AppendVector(&builder_, vector, zero);
         return EmitExpression(out, packed->Declaration());
     };
 
     auto emit_vector_appended_with_level = [&](const ast::Expression* vector) {
         if (auto* level = arg(Usage::kLevel)) {
-            auto* packed = tint::wgsl::AppendVector(&builder_, vector, level);
+            auto* packed = AppendVector(&builder_, vector, level);
             return EmitExpression(out, packed->Declaration());
         }
         return emit_vector_appended_with_i32_zero(vector);
@@ -2961,7 +3120,7 @@ bool ASTPrinter::EmitTextureCall(StringStream& out,
 
     if (auto* array_index = arg(Usage::kArrayIndex)) {
         // Array index needs to be appended to the coordinates.
-        auto* packed = tint::wgsl::AppendVector(&builder_, param_coords, array_index);
+        auto* packed = AppendVector(&builder_, param_coords, array_index);
         if (pack_level_in_coords) {
             // Then mip level needs to be appended to the coordinates.
             if (!emit_vector_appended_with_level(packed->Declaration())) {
@@ -3022,8 +3181,9 @@ bool ASTPrinter::EmitTextureCall(StringStream& out,
         }
         if (wgsl_ret_width < hlsl_ret_width) {
             out << ".";
+            TINT_ASSERT(wgsl_ret_width < 3);
             for (uint32_t i = 0; i < wgsl_ret_width; i++) {
-                out << "xyz"[i];
+                out << kSwizzle[i];
             }
         }
         if (DAWN_UNLIKELY(wgsl_ret_width > hlsl_ret_width)) {

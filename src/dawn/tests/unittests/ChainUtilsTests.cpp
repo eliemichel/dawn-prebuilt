@@ -86,6 +86,29 @@ TEST(ChainUtilsTests, ValidateAndUnpackUnexpected) {
     }
 }
 
+// Inject invalid chain extensions cause an error.
+TEST(ChainUtilsTests, ValidateAndUnpackInjected) {
+    {
+        // TextureViewDescriptor (as of when this test was written) does not have any valid chains
+        // in the JSON nor via additional extensions.
+        TextureViewDescriptor desc;
+        DawnInjectedInvalidSType chain;
+        chain.invalidSType = wgpu::SType::ShaderSourceWGSL;
+        desc.nextInChain = &chain;
+        EXPECT_THAT(ValidateAndUnpack(&desc).AcquireError()->GetFormattedMessage(),
+                    HasSubstr("ShaderSourceWGSL"));
+    }
+    {
+        // InstanceDescriptor has at least 1 valid chain extension.
+        InstanceDescriptor desc;
+        DawnInjectedInvalidSType chain;
+        chain.invalidSType = wgpu::SType::ShaderSourceWGSL;
+        desc.nextInChain = &chain;
+        EXPECT_THAT(ValidateAndUnpack(&desc).AcquireError()->GetFormattedMessage(),
+                    HasSubstr("ShaderSourceWGSL"));
+    }
+}
+
 // Nominal unpacking valid descriptors should return the expected descriptors in the unpacked type.
 TEST(ChainUtilsTests, ValidateAndUnpack) {
     // DawnTogglesDescriptor is a valid extension for InstanceDescriptor.
@@ -236,9 +259,8 @@ TEST(ChainUtilsTests, ValidateBranchesAllowedExtensions) {
 
 // Unrealistic branching for ChainedStructOut testing. Note that this setup does not make sense.
 using BOut1 = Branch<SharedFenceVkSemaphoreOpaqueFDExportInfo>;
-using BOut2 = Branch<SharedFenceVkSemaphoreSyncFDExportInfo>;
-using BOut2Ext =
-    Branch<SharedFenceVkSemaphoreSyncFDExportInfo, SharedFenceVkSemaphoreZirconHandleExportInfo>;
+using BOut2 = Branch<SharedFenceSyncFDExportInfo>;
+using BOut2Ext = Branch<SharedFenceSyncFDExportInfo, SharedFenceVkSemaphoreZirconHandleExportInfo>;
 
 // Validates exacly 1 branch and ensures that there are no other extensions.
 TEST(ChainUtilsTests, ValidateBranchesOneValidBranchOut) {
@@ -252,16 +274,16 @@ TEST(ChainUtilsTests, ValidateBranchesOneValidBranchOut) {
                   wgpu::SType::SharedFenceVkSemaphoreOpaqueFDExportInfo);
     }
     {
-        SharedFenceVkSemaphoreSyncFDExportInfo chain;
+        SharedFenceSyncFDExportInfo chain;
         info.nextInChain = &chain;
         auto unpacked = ValidateAndUnpack(&info).AcquireSuccess();
         EXPECT_EQ((unpacked.ValidateBranches<BOut1, BOut2>().AcquireSuccess()),
-                  wgpu::SType::SharedFenceVkSemaphoreSyncFDExportInfo);
+                  wgpu::SType::SharedFenceSyncFDExportInfo);
 
         // Extensions are optional so validation should still pass when the extension is not
         // provided.
         EXPECT_EQ((unpacked.ValidateBranches<BOut1, BOut2Ext>().AcquireSuccess()),
-                  wgpu::SType::SharedFenceVkSemaphoreSyncFDExportInfo);
+                  wgpu::SType::SharedFenceSyncFDExportInfo);
     }
 }
 
@@ -288,7 +310,7 @@ TEST(ChainUtilsTests, ValidateBranchesInvalidExtensionOut) {
         EXPECT_NE((unpacked.ValidateBranches<BOut1, BOut2Ext>().AcquireError()), nullptr);
     }
     {
-        SharedFenceVkSemaphoreSyncFDExportInfo chain1;
+        SharedFenceSyncFDExportInfo chain1;
         SharedFenceVkSemaphoreZirconHandleExportInfo chain2;
         info.nextInChain = &chain1;
         chain1.nextInChain = &chain2;
@@ -300,13 +322,13 @@ TEST(ChainUtilsTests, ValidateBranchesInvalidExtensionOut) {
 // Branches that allow extensions pass successfully.
 TEST(ChainUtilsTests, ValidateBranchesAllowedExtensionsOut) {
     SharedFenceExportInfo info;
-    SharedFenceVkSemaphoreSyncFDExportInfo chain1;
+    SharedFenceSyncFDExportInfo chain1;
     SharedFenceVkSemaphoreZirconHandleExportInfo chain2;
     info.nextInChain = &chain1;
     chain1.nextInChain = &chain2;
     auto unpacked = ValidateAndUnpack(&info).AcquireSuccess();
     EXPECT_EQ((unpacked.ValidateBranches<BOut1, BOut2Ext>().AcquireSuccess()),
-              wgpu::SType::SharedFenceVkSemaphoreSyncFDExportInfo);
+              wgpu::SType::SharedFenceSyncFDExportInfo);
 }
 
 // Valid subsets should pass successfully, while invalid ones should error.

@@ -37,6 +37,7 @@
 #include "src/tint/lang/core/interpolation_sampling.h"
 #include "src/tint/lang/core/interpolation_type.h"
 #include "src/tint/lang/core/number.h"
+#include "src/tint/lang/core/subgroup_matrix_kind.h"
 #include "src/tint/lang/core/texel_format.h"
 #include "src/tint/lang/core/type/sampler_kind.h"
 #include "src/tint/lang/core/type/texture_dimension.h"
@@ -101,7 +102,7 @@
 #include "src/tint/lang/wgsl/ast/workgroup_attribute.h"
 #include "src/tint/lang/wgsl/builtin_fn.h"
 #include "src/tint/lang/wgsl/extension.h"
-#include "src/tint/utils/id/generation_id.h"
+#include "src/tint/utils/generation_id.h"
 #include "src/tint/utils/memory/block_allocator.h"
 #include "src/tint/utils/symbol/symbol_table.h"
 #include "src/tint/utils/text/string.h"
@@ -660,7 +661,7 @@ class Builder {
         /// @return a matrix of @p type
         ast::Type mat(const Source& source, ast::Type type, uint32_t columns, uint32_t rows) const {
             if (DAWN_LIKELY(columns >= 2 && columns <= 4 && rows >= 2 && rows <= 4)) {
-                static constexpr const char* names[] = {
+                static constexpr std::array<const char*, 9> names = {
                     "mat2x2", "mat2x3", "mat2x4",  //
                     "mat3x2", "mat3x3", "mat3x4",  //
                     "mat4x2", "mat4x3", "mat4x4",  //
@@ -1295,6 +1296,29 @@ class Builder {
         /// @returns the external texture
         ast::Type external_texture(const Source& source) const {
             return (*this)(source, "texture_external");
+        }
+
+        /// @param kind the subgroup matrix kind
+        /// @param el the subgroup matrix element type
+        /// @param cols the column count
+        /// @param rows the row count
+        /// @returns the subgroup matrix
+        ast::Type subgroup_matrix(core::SubgroupMatrixKind kind,
+                                  ast::Type el,
+                                  uint32_t cols,
+                                  uint32_t rows) const {
+            auto c = core::AInt(cols);
+            auto r = core::AInt(rows);
+            switch (kind) {
+                case core::SubgroupMatrixKind::kLeft:
+                    return (*this)("subgroup_matrix_left", el, c, r);
+                case core::SubgroupMatrixKind::kRight:
+                    return (*this)("subgroup_matrix_right", el, c, r);
+                case core::SubgroupMatrixKind::kResult:
+                    return (*this)("subgroup_matrix_result", el, c, r);
+                case core::SubgroupMatrixKind::kUndefined:
+                    TINT_UNREACHABLE();
+            }
         }
 
         /// @param type the type

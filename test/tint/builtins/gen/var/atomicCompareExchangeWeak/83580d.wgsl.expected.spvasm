@@ -20,8 +20,6 @@
                OpName %tint_local_index "tint_local_index"
                OpName %compute_main "compute_main"
                OpDecorate %compute_main_local_invocation_index_Input BuiltIn LocalInvocationIndex
-               OpMemberDecorate %__atomic_compare_exchange_result_u32 0 Offset 0
-               OpMemberDecorate %__atomic_compare_exchange_result_u32 1 Offset 4
        %uint = OpTypeInt 32 0
 %_ptr_Workgroup_uint = OpTypePointer Workgroup %uint
       %arg_0 = OpVariable %_ptr_Workgroup_uint Workgroup
@@ -56,7 +54,7 @@
 %compute_main_inner = OpFunction %void None %27
 %tint_local_index = OpFunctionParameter %uint
          %28 = OpLabel
-         %29 = OpIEqual %bool %tint_local_index %uint_0
+         %29 = OpULessThan %bool %tint_local_index %uint_1
                OpSelectionMerge %30 None
                OpBranchConditional %29 %31 %30
          %31 = OpLabel
@@ -64,7 +62,7 @@
                OpBranch %30
          %30 = OpLabel
                OpControlBarrier %uint_2 %uint_2 %uint_264
-         %35 = OpFunctionCall %void %atomicCompareExchangeWeak_83580d
+         %34 = OpFunctionCall %void %atomicCompareExchangeWeak_83580d
                OpReturn
                OpFunctionEnd
 %compute_main = OpFunction %void None %8

@@ -36,28 +36,28 @@ LimitsAndFeatures::LimitsAndFeatures() = default;
 
 LimitsAndFeatures::~LimitsAndFeatures() = default;
 
-WGPUStatus LimitsAndFeatures::GetLimits(WGPUSupportedLimits* limits) const {
+WGPUStatus LimitsAndFeatures::GetLimits(WGPULimits* limits) const {
     DAWN_ASSERT(limits != nullptr);
     auto* originalNextInChain = limits->nextInChain;
     *limits = mLimits;
     limits->nextInChain = originalNextInChain;
     // Handle other requiring limits that chained after WGPUSupportedLimits
     for (auto* chain = limits->nextInChain; chain; chain = chain->next) {
-        // Store the WGPUChainedStructOut to restore the chain after assignment.
-        WGPUChainedStructOut originalChainedStructOut = *chain;
+        // Store the WGPUChainedStruct to restore the chain after assignment.
+        WGPUChainedStruct originalChainedStruct = *chain;
         switch (chain->sType) {
-            case (WGPUSType_DawnExperimentalSubgroupLimits): {
-                auto* experimentalSubgroupLimits =
-                    reinterpret_cast<WGPUDawnExperimentalSubgroupLimits*>(chain);
-                // This assignment break the next field of WGPUChainedStructOut head.
-                *experimentalSubgroupLimits = mExperimentalSubgroupLimits;
-                break;
-            }
             case (WGPUSType_DawnExperimentalImmediateDataLimits): {
                 auto* experimentalImmediateDataLimits =
                     reinterpret_cast<WGPUDawnExperimentalImmediateDataLimits*>(chain);
-                // This assignment break the next field of WGPUChainedStructOut head.
+                // This assignment break the next field of WGPUChainedStruct head.
                 *experimentalImmediateDataLimits = mExperimentalImmediateDataLimits;
+                break;
+            }
+            case (WGPUSType_DawnTexelCopyBufferRowAlignmentLimits): {
+                auto* texelCopyBufferRowAlignmentLimits =
+                    reinterpret_cast<WGPUDawnTexelCopyBufferRowAlignmentLimits*>(chain);
+                // This assignment break the next field of WGPUChainedStruct head.
+                *texelCopyBufferRowAlignmentLimits = mTexelCopyBufferRowAlignmentLimits;
                 break;
             }
             default:
@@ -65,7 +65,7 @@ WGPUStatus LimitsAndFeatures::GetLimits(WGPUSupportedLimits* limits) const {
                 return WGPUStatus_Error;
         }
         // Restore the chain.
-        *chain = originalChainedStructOut;
+        *chain = originalChainedStruct;
     }
     return WGPUStatus_Success;
 }
@@ -74,35 +74,48 @@ bool LimitsAndFeatures::HasFeature(WGPUFeatureName feature) const {
     return mFeatures.contains(feature);
 }
 
-size_t LimitsAndFeatures::EnumerateFeatures(WGPUFeatureName* features) const {
-    if (features != nullptr) {
-        for (WGPUFeatureName f : mFeatures) {
-            *features = f;
-            ++features;
-        }
+void LimitsAndFeatures::ToSupportedFeatures(WGPUSupportedFeatures* supportedFeatures) const {
+    if (!supportedFeatures) {
+        return;
     }
-    return mFeatures.size();
+
+    const size_t count = mFeatures.size();
+    supportedFeatures->featureCount = count;
+    supportedFeatures->features = nullptr;
+
+    if (count == 0) {
+        return;
+    }
+
+    // This will be freed by wgpuSupportedFeaturesFreeMembers.
+    WGPUFeatureName* features = new WGPUFeatureName[count];
+    uint32_t index = 0;
+    for (WGPUFeatureName f : mFeatures) {
+        features[index++] = f;
+    }
+    DAWN_ASSERT(index == count);
+    supportedFeatures->features = features;
 }
 
-void LimitsAndFeatures::SetLimits(const WGPUSupportedLimits* limits) {
+void LimitsAndFeatures::SetLimits(const WGPULimits* limits) {
     DAWN_ASSERT(limits != nullptr);
     mLimits = *limits;
     mLimits.nextInChain = nullptr;
     // Handle other limits that chained after WGPUSupportedLimits
     for (auto* chain = limits->nextInChain; chain; chain = chain->next) {
         switch (chain->sType) {
-            case (WGPUSType_DawnExperimentalSubgroupLimits): {
-                auto* experimentalSubgroupLimits =
-                    reinterpret_cast<WGPUDawnExperimentalSubgroupLimits*>(chain);
-                mExperimentalSubgroupLimits = *experimentalSubgroupLimits;
-                mExperimentalSubgroupLimits.chain.next = nullptr;
-                break;
-            }
             case (WGPUSType_DawnExperimentalImmediateDataLimits): {
                 auto* experimentalImmediateDataLimits =
                     reinterpret_cast<WGPUDawnExperimentalImmediateDataLimits*>(chain);
                 mExperimentalImmediateDataLimits = *experimentalImmediateDataLimits;
                 mExperimentalImmediateDataLimits.chain.next = nullptr;
+                break;
+            }
+            case (WGPUSType_DawnTexelCopyBufferRowAlignmentLimits): {
+                auto* texelCopyBufferRowAlignmentLimits =
+                    reinterpret_cast<WGPUDawnTexelCopyBufferRowAlignmentLimits*>(chain);
+                mTexelCopyBufferRowAlignmentLimits = *texelCopyBufferRowAlignmentLimits;
+                mTexelCopyBufferRowAlignmentLimits.chain.next = nullptr;
                 break;
             }
             default:

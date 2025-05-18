@@ -40,16 +40,14 @@ using namespace tint::core::number_suffixes;  // NOLINT
 using SpirvWriter_ShaderIOTest = core::ir::transform::TransformTest;
 
 TEST_F(SpirvWriter_ShaderIOTest, NoInputsOrOutputs) {
-    auto* ep = b.Function("foo", ty.void_());
-    ep->SetStage(core::ir::Function::PipelineStage::kCompute);
-    ep->SetWorkgroupSize(1, 1, 1);
+    auto* ep = b.ComputeFunction("foo");
 
     b.Append(ep->Block(), [&] {  //
         b.Return(ep);
     });
 
     auto* src = R"(
-%foo = @compute @workgroup_size(1, 1, 1) func():void {
+%foo = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B1: {
     ret
   }
@@ -59,8 +57,8 @@ TEST_F(SpirvWriter_ShaderIOTest, NoInputsOrOutputs) {
 
     auto* expect = src;
 
-    ShaderIOConfig config;
-    config.clamp_frag_depth = false;
+    core::ir::transform::PushConstantLayout push_constants;
+    ShaderIOConfig config{push_constants};
     Run(ShaderIO, config);
 
     EXPECT_EQ(expect, str());
@@ -110,10 +108,10 @@ TEST_F(SpirvWriter_ShaderIOTest, Parameters_NonStruct) {
 
     auto* expect = R"(
 $B1: {  # root
-  %foo_front_facing_Input:ptr<__in, bool, read> = var @builtin(front_facing)
-  %foo_position_Input:ptr<__in, vec4<f32>, read> = var @invariant @builtin(position)
-  %foo_loc0_Input:ptr<__in, f32, read> = var @location(0)
-  %foo_loc1_Input:ptr<__in, f32, read> = var @location(1) @interpolate(linear, sample)
+  %foo_front_facing_Input:ptr<__in, bool, read> = var undef @builtin(front_facing)
+  %foo_position_Input:ptr<__in, vec4<f32>, read> = var undef @invariant @builtin(position)
+  %foo_loc0_Input:ptr<__in, f32, read> = var undef @location(0)
+  %foo_loc1_Input:ptr<__in, f32, read> = var undef @location(1) @interpolate(linear, sample)
 }
 
 %foo_inner = func(%front_facing:bool, %position:vec4<f32>, %color1:f32, %color2:f32):void {
@@ -140,8 +138,8 @@ $B1: {  # root
 }
 )";
 
-    ShaderIOConfig config;
-    config.clamp_frag_depth = false;
+    core::ir::transform::PushConstantLayout push_constants;
+    ShaderIOConfig config{push_constants};
     Run(ShaderIO, config);
 
     EXPECT_EQ(expect, str());
@@ -257,10 +255,10 @@ Inputs = struct @align(16) {
 }
 
 $B1: {  # root
-  %foo_front_facing_Input:ptr<__in, bool, read> = var @builtin(front_facing)
-  %foo_position_Input:ptr<__in, vec4<f32>, read> = var @invariant @builtin(position)
-  %foo_loc0_Input:ptr<__in, f32, read> = var @location(0)
-  %foo_loc1_Input:ptr<__in, f32, read> = var @location(1) @interpolate(linear, sample)
+  %foo_front_facing_Input:ptr<__in, bool, read> = var undef @builtin(front_facing)
+  %foo_position_Input:ptr<__in, vec4<f32>, read> = var undef @invariant @builtin(position)
+  %foo_loc0_Input:ptr<__in, f32, read> = var undef @location(0)
+  %foo_loc1_Input:ptr<__in, f32, read> = var undef @location(1) @interpolate(linear, sample)
 }
 
 %foo_inner = func(%inputs:Inputs):void {
@@ -292,8 +290,8 @@ $B1: {  # root
 }
 )";
 
-    ShaderIOConfig config;
-    config.clamp_frag_depth = false;
+    core::ir::transform::PushConstantLayout push_constants;
+    ShaderIOConfig config{push_constants};
     Run(ShaderIO, config);
 
     EXPECT_EQ(expect, str());
@@ -381,10 +379,10 @@ Inputs = struct @align(16) {
 }
 
 $B1: {  # root
-  %foo_front_facing_Input:ptr<__in, bool, read> = var @builtin(front_facing)
-  %foo_position_Input:ptr<__in, vec4<f32>, read> = var @invariant @builtin(position)
-  %foo_loc0_Input:ptr<__in, f32, read> = var @location(0)
-  %foo_loc1_Input:ptr<__in, f32, read> = var @location(1) @interpolate(linear, sample)
+  %foo_front_facing_Input:ptr<__in, bool, read> = var undef @builtin(front_facing)
+  %foo_position_Input:ptr<__in, vec4<f32>, read> = var undef @invariant @builtin(position)
+  %foo_loc0_Input:ptr<__in, f32, read> = var undef @location(0)
+  %foo_loc1_Input:ptr<__in, f32, read> = var undef @location(1) @interpolate(linear, sample)
 }
 
 %foo_inner = func(%front_facing:bool, %inputs:Inputs, %color2:f32):void {
@@ -414,8 +412,8 @@ $B1: {  # root
 }
 )";
 
-    ShaderIOConfig config;
-    config.clamp_frag_depth = false;
+    core::ir::transform::PushConstantLayout push_constants;
+    ShaderIOConfig config{push_constants};
     Run(ShaderIO, config);
 
     EXPECT_EQ(expect, str());
@@ -443,7 +441,7 @@ TEST_F(SpirvWriter_ShaderIOTest, ReturnValue_NonStructBuiltin) {
 
     auto* expect = R"(
 $B1: {  # root
-  %foo_position_Output:ptr<__out, vec4<f32>, write> = var @invariant @builtin(position)
+  %foo_position_Output:ptr<__out, vec4<f32>, write> = var undef @invariant @builtin(position)
 }
 
 %foo_inner = func():vec4<f32> {
@@ -461,8 +459,8 @@ $B1: {  # root
 }
 )";
 
-    ShaderIOConfig config;
-    config.clamp_frag_depth = false;
+    core::ir::transform::PushConstantLayout push_constants;
+    ShaderIOConfig config{push_constants};
     Run(ShaderIO, config);
 
     EXPECT_EQ(expect, str());
@@ -489,7 +487,7 @@ TEST_F(SpirvWriter_ShaderIOTest, ReturnValue_NonStructLocation) {
 
     auto* expect = R"(
 $B1: {  # root
-  %foo_loc1_Output:ptr<__out, vec4<f32>, write> = var @location(1)
+  %foo_loc1_Output:ptr<__out, vec4<f32>, write> = var undef @location(1)
 }
 
 %foo_inner = func():vec4<f32> {
@@ -507,8 +505,8 @@ $B1: {  # root
 }
 )";
 
-    ShaderIOConfig config;
-    config.clamp_frag_depth = false;
+    core::ir::transform::PushConstantLayout push_constants;
+    ShaderIOConfig config{push_constants};
     Run(ShaderIO, config);
 
     EXPECT_EQ(expect, str());
@@ -591,9 +589,9 @@ Outputs = struct @align(16) {
 }
 
 $B1: {  # root
-  %foo_position_Output:ptr<__out, vec4<f32>, write> = var @invariant @builtin(position)
-  %foo_loc0_Output:ptr<__out, f32, write> = var @location(0)
-  %foo_loc1_Output:ptr<__out, f32, write> = var @location(1) @interpolate(linear, sample)
+  %foo_position_Output:ptr<__out, vec4<f32>, write> = var undef @invariant @builtin(position)
+  %foo_loc0_Output:ptr<__out, f32, write> = var undef @location(0)
+  %foo_loc1_Output:ptr<__out, f32, write> = var undef @location(1) @interpolate(linear, sample)
 }
 
 %foo_inner = func():Outputs {
@@ -617,8 +615,8 @@ $B1: {  # root
 }
 )";
 
-    ShaderIOConfig config;
-    config.clamp_frag_depth = false;
+    core::ir::transform::PushConstantLayout push_constants;
+    ShaderIOConfig config{push_constants};
     Run(ShaderIO, config);
 
     EXPECT_EQ(expect, str());
@@ -682,8 +680,8 @@ Output = struct @align(4) {
 }
 
 $B1: {  # root
-  %foo_loc0_idx0_Output:ptr<__out, f32, write> = var @location(0) @blend_src(0)
-  %foo_loc0_idx1_Output:ptr<__out, f32, write> = var @location(0) @blend_src(1)
+  %foo_loc0_idx0_Output:ptr<__out, f32, write> = var undef @location(0) @blend_src(0)
+  %foo_loc0_idx1_Output:ptr<__out, f32, write> = var undef @location(0) @blend_src(1)
 }
 
 %foo_inner = func():Output {
@@ -704,8 +702,8 @@ $B1: {  # root
 }
 )";
 
-    ShaderIOConfig config;
-    config.clamp_frag_depth = false;
+    core::ir::transform::PushConstantLayout push_constants;
+    ShaderIOConfig config{push_constants};
     Run(ShaderIO, config);
 
     EXPECT_EQ(expect, str());
@@ -800,11 +798,11 @@ Interface = struct @align(16) {
 }
 
 $B1: {  # root
-  %vert_position_Output:ptr<__out, vec4<f32>, write> = var @builtin(position)
-  %vert_loc0_Output:ptr<__out, vec4<f32>, write> = var @location(0)
-  %frag_position_Input:ptr<__in, vec4<f32>, read> = var @builtin(position)
-  %frag_loc0_Input:ptr<__in, vec4<f32>, read> = var @location(0)
-  %frag_loc0_Output:ptr<__out, vec4<f32>, write> = var @location(0)
+  %vert_position_Output:ptr<__out, vec4<f32>, write> = var undef @builtin(position)
+  %vert_loc0_Output:ptr<__out, vec4<f32>, write> = var undef @location(0)
+  %frag_position_Input:ptr<__in, vec4<f32>, read> = var undef @builtin(position)
+  %frag_loc0_Input:ptr<__in, vec4<f32>, read> = var undef @location(0)
+  %frag_loc0_Output:ptr<__out, vec4<f32>, write> = var undef @location(0)
 }
 
 %vert_inner = func():Interface {
@@ -845,8 +843,8 @@ $B1: {  # root
 }
 )";
 
-    ShaderIOConfig config;
-    config.clamp_frag_depth = false;
+    core::ir::transform::PushConstantLayout push_constants;
+    ShaderIOConfig config{push_constants};
     Run(ShaderIO, config);
 
     EXPECT_EQ(expect, str());
@@ -900,7 +898,7 @@ Outputs = struct @align(16) {
 }
 
 $B1: {  # root
-  %1:ptr<storage, Outputs, read> = var @binding_point(0, 0)
+  %1:ptr<storage, Outputs, read> = var undef @binding_point(0, 0)
 }
 
 %vert = @vertex func():Outputs {
@@ -919,9 +917,9 @@ Outputs = struct @align(16) {
 }
 
 $B1: {  # root
-  %1:ptr<storage, Outputs, read> = var @binding_point(0, 0)
-  %vert_position_Output:ptr<__out, vec4<f32>, write> = var @builtin(position)
-  %vert_loc0_Output:ptr<__out, vec4<f32>, write> = var @location(0)
+  %1:ptr<storage, Outputs, read> = var undef @binding_point(0, 0)
+  %vert_position_Output:ptr<__out, vec4<f32>, write> = var undef @builtin(position)
+  %vert_loc0_Output:ptr<__out, vec4<f32>, write> = var undef @location(0)
 }
 
 %vert_inner = func():Outputs {
@@ -942,8 +940,8 @@ $B1: {  # root
 }
 )";
 
-    ShaderIOConfig config;
-    config.clamp_frag_depth = false;
+    core::ir::transform::PushConstantLayout push_constants;
+    ShaderIOConfig config{push_constants};
     Run(ShaderIO, config);
 
     EXPECT_EQ(expect, str());
@@ -1012,9 +1010,9 @@ Outputs = struct @align(4) {
 }
 
 $B1: {  # root
-  %foo_sample_mask_Input:ptr<__in, array<u32, 1>, read> = var @builtin(sample_mask)
-  %foo_loc0_Output:ptr<__out, f32, write> = var @location(0)
-  %foo_sample_mask_Output:ptr<__out, array<u32, 1>, write> = var @builtin(sample_mask)
+  %foo_sample_mask_Input:ptr<__in, array<u32, 1>, read> = var undef @builtin(sample_mask)
+  %foo_loc0_Output:ptr<__out, f32, write> = var undef @location(0)
+  %foo_sample_mask_Output:ptr<__out, array<u32, 1>, write> = var undef @builtin(sample_mask)
 }
 
 %foo_inner = func(%mask_in:u32):Outputs {
@@ -1038,8 +1036,8 @@ $B1: {  # root
 }
 )";
 
-    ShaderIOConfig config;
-    config.clamp_frag_depth = false;
+    core::ir::transform::PushConstantLayout push_constants;
+    ShaderIOConfig config{push_constants};
     Run(ShaderIO, config);
 
     EXPECT_EQ(expect, str());
@@ -1138,11 +1136,11 @@ MyStruct = struct @align(4) {
 }
 
 $B1: {  # root
-  %vert_loc1_Input:ptr<__in, f32, read> = var @location(1)
-  %vert_loc1_Input_1:ptr<__in, i32, read> = var @location(1)  # %vert_loc1_Input_1: 'vert_loc1_Input'
-  %vert_position_Output:ptr<__out, vec4<f32>, write> = var @invariant @builtin(position)
-  %frag1_loc1_Output:ptr<__out, f32, write> = var @location(1)
-  %frag2_loc0_Output:ptr<__out, i32, write> = var @location(0)
+  %vert_loc1_Input:ptr<__in, f32, read> = var undef @location(1)
+  %vert_loc1_Input_1:ptr<__in, i32, read> = var undef @location(1)  # %vert_loc1_Input_1: 'vert_loc1_Input'
+  %vert_position_Output:ptr<__out, vec4<f32>, write> = var undef @invariant @builtin(position)
+  %frag1_loc1_Output:ptr<__out, f32, write> = var undef @location(1)
+  %frag2_loc0_Output:ptr<__out, i32, write> = var undef @location(0)
 }
 
 %vert_inner = func(%input:MyStruct, %ival:i32):vec4<f32> {
@@ -1189,8 +1187,8 @@ $B1: {  # root
 }
 )";
 
-    ShaderIOConfig config;
-    config.clamp_frag_depth = false;
+    core::ir::transform::PushConstantLayout push_constants;
+    ShaderIOConfig config{push_constants};
     Run(ShaderIO, config);
 
     EXPECT_EQ(expect, str());
@@ -1253,15 +1251,15 @@ Outputs = struct @align(4) {
   depth:f32 @offset(4)
 }
 
-FragDepthClampArgs = struct @align(4), @block {
-  min:f32 @offset(0)
-  max:f32 @offset(4)
+tint_push_constant_struct = struct @align(4), @block {
+  depth_min:f32 @offset(4)
+  depth_max:f32 @offset(8)
 }
 
 $B1: {  # root
-  %foo_loc0_Output:ptr<__out, f32, write> = var @location(0)
-  %foo_frag_depth_Output:ptr<__out, f32, write> = var @builtin(frag_depth)
-  %tint_frag_depth_clamp_args:ptr<push_constant, FragDepthClampArgs, read> = var
+  %tint_push_constants:ptr<push_constant, tint_push_constant_struct, read> = var undef
+  %foo_loc0_Output:ptr<__out, f32, write> = var undef @location(0)
+  %foo_frag_depth_Output:ptr<__out, f32, write> = var undef @builtin(frag_depth)
 }
 
 %foo_inner = func():Outputs {
@@ -1276,18 +1274,25 @@ $B1: {  # root
     %8:f32 = access %7, 0u
     store %foo_loc0_Output, %8
     %9:f32 = access %7, 1u
-    %10:FragDepthClampArgs = load %tint_frag_depth_clamp_args
-    %11:f32 = access %10, 0u
-    %12:f32 = access %10, 1u
-    %13:f32 = clamp %9, %11, %12
-    store %foo_frag_depth_Output, %13
+    %10:ptr<push_constant, f32, read> = access %tint_push_constants, 0u
+    %11:f32 = load %10
+    %12:ptr<push_constant, f32, read> = access %tint_push_constants, 1u
+    %13:f32 = load %12
+    %14:f32 = clamp %9, %11, %13
+    store %foo_frag_depth_Output, %14
     ret
   }
 }
 )";
 
-    ShaderIOConfig config;
-    config.clamp_frag_depth = true;
+    core::ir::transform::PreparePushConstantsConfig push_constants_config;
+    push_constants_config.AddInternalConstant(4, mod.symbols.New("depth_min"), ty.f32());
+    push_constants_config.AddInternalConstant(8, mod.symbols.New("depth_max"), ty.f32());
+    auto push_constants = PreparePushConstants(mod, push_constants_config);
+    EXPECT_EQ(push_constants, Success);
+
+    ShaderIOConfig config{push_constants.Get()};
+    config.depth_range_offsets = {4, 8};
     Run(ShaderIO, config);
 
     EXPECT_EQ(expect, str());
@@ -1366,19 +1371,19 @@ Outputs = struct @align(4) {
   depth:f32 @offset(4)
 }
 
-FragDepthClampArgs = struct @align(4), @block {
-  min:f32 @offset(0)
-  max:f32 @offset(4)
+tint_push_constant_struct = struct @align(4), @block {
+  depth_min:f32 @offset(4)
+  depth_max:f32 @offset(8)
 }
 
 $B1: {  # root
-  %ep1_loc0_Output:ptr<__out, f32, write> = var @location(0)
-  %ep1_frag_depth_Output:ptr<__out, f32, write> = var @builtin(frag_depth)
-  %tint_frag_depth_clamp_args:ptr<push_constant, FragDepthClampArgs, read> = var
-  %ep2_loc0_Output:ptr<__out, f32, write> = var @location(0)
-  %ep2_frag_depth_Output:ptr<__out, f32, write> = var @builtin(frag_depth)
-  %ep3_loc0_Output:ptr<__out, f32, write> = var @location(0)
-  %ep3_frag_depth_Output:ptr<__out, f32, write> = var @builtin(frag_depth)
+  %tint_push_constants:ptr<push_constant, tint_push_constant_struct, read> = var undef
+  %ep1_loc0_Output:ptr<__out, f32, write> = var undef @location(0)
+  %ep1_frag_depth_Output:ptr<__out, f32, write> = var undef @builtin(frag_depth)
+  %ep2_loc0_Output:ptr<__out, f32, write> = var undef @location(0)
+  %ep2_frag_depth_Output:ptr<__out, f32, write> = var undef @builtin(frag_depth)
+  %ep3_loc0_Output:ptr<__out, f32, write> = var undef @location(0)
+  %ep3_frag_depth_Output:ptr<__out, f32, write> = var undef @builtin(frag_depth)
 }
 
 %ep1_inner = func():Outputs {
@@ -1405,46 +1410,55 @@ $B1: {  # root
     %16:f32 = access %15, 0u
     store %ep1_loc0_Output, %16
     %17:f32 = access %15, 1u
-    %18:FragDepthClampArgs = load %tint_frag_depth_clamp_args
-    %19:f32 = access %18, 0u
-    %20:f32 = access %18, 1u
-    %21:f32 = clamp %17, %19, %20
-    store %ep1_frag_depth_Output, %21
+    %18:ptr<push_constant, f32, read> = access %tint_push_constants, 0u
+    %19:f32 = load %18
+    %20:ptr<push_constant, f32, read> = access %tint_push_constants, 1u
+    %21:f32 = load %20
+    %22:f32 = clamp %17, %19, %21
+    store %ep1_frag_depth_Output, %22
     ret
   }
 }
 %ep2 = @fragment func():void {
   $B6: {
-    %23:Outputs = call %ep2_inner
-    %24:f32 = access %23, 0u
-    store %ep2_loc0_Output, %24
-    %25:f32 = access %23, 1u
-    %26:FragDepthClampArgs = load %tint_frag_depth_clamp_args
-    %27:f32 = access %26, 0u
-    %28:f32 = access %26, 1u
-    %29:f32 = clamp %25, %27, %28
-    store %ep2_frag_depth_Output, %29
+    %24:Outputs = call %ep2_inner
+    %25:f32 = access %24, 0u
+    store %ep2_loc0_Output, %25
+    %26:f32 = access %24, 1u
+    %27:ptr<push_constant, f32, read> = access %tint_push_constants, 0u
+    %28:f32 = load %27
+    %29:ptr<push_constant, f32, read> = access %tint_push_constants, 1u
+    %30:f32 = load %29
+    %31:f32 = clamp %26, %28, %30
+    store %ep2_frag_depth_Output, %31
     ret
   }
 }
 %ep3 = @fragment func():void {
   $B7: {
-    %31:Outputs = call %ep3_inner
-    %32:f32 = access %31, 0u
-    store %ep3_loc0_Output, %32
-    %33:f32 = access %31, 1u
-    %34:FragDepthClampArgs = load %tint_frag_depth_clamp_args
-    %35:f32 = access %34, 0u
-    %36:f32 = access %34, 1u
-    %37:f32 = clamp %33, %35, %36
-    store %ep3_frag_depth_Output, %37
+    %33:Outputs = call %ep3_inner
+    %34:f32 = access %33, 0u
+    store %ep3_loc0_Output, %34
+    %35:f32 = access %33, 1u
+    %36:ptr<push_constant, f32, read> = access %tint_push_constants, 0u
+    %37:f32 = load %36
+    %38:ptr<push_constant, f32, read> = access %tint_push_constants, 1u
+    %39:f32 = load %38
+    %40:f32 = clamp %35, %37, %39
+    store %ep3_frag_depth_Output, %40
     ret
   }
 }
 )";
 
-    ShaderIOConfig config;
-    config.clamp_frag_depth = true;
+    core::ir::transform::PreparePushConstantsConfig push_constants_config;
+    push_constants_config.AddInternalConstant(4, mod.symbols.New("depth_min"), ty.f32());
+    push_constants_config.AddInternalConstant(8, mod.symbols.New("depth_max"), ty.f32());
+    auto push_constants = PreparePushConstants(mod, push_constants_config);
+    EXPECT_EQ(push_constants, Success);
+
+    ShaderIOConfig config{push_constants.Get()};
+    config.depth_range_offsets = {4, 8};
     Run(ShaderIO, config);
 
     EXPECT_EQ(expect, str());
@@ -1471,8 +1485,8 @@ TEST_F(SpirvWriter_ShaderIOTest, EmitVertexPointSize) {
 
     auto* expect = R"(
 $B1: {  # root
-  %foo_position_Output:ptr<__out, vec4<f32>, write> = var @builtin(position)
-  %foo___point_size_Output:ptr<__out, f32, write> = var @builtin(__point_size)
+  %foo_position_Output:ptr<__out, vec4<f32>, write> = var undef @builtin(position)
+  %foo___point_size_Output:ptr<__out, f32, write> = var undef @builtin(__point_size)
 }
 
 %foo_inner = func():vec4<f32> {
@@ -1491,7 +1505,8 @@ $B1: {  # root
 }
 )";
 
-    ShaderIOConfig config;
+    core::ir::transform::PushConstantLayout push_constants;
+    ShaderIOConfig config{push_constants};
     config.emit_vertex_point_size = true;
     Run(ShaderIO, config);
 
@@ -1530,7 +1545,7 @@ TEST_F(SpirvWriter_ShaderIOTest, F16_IO_WithoutPolyfill) {
     auto* in1 = b.FunctionParam("in1", ty.f16());
     auto* in2 = b.FunctionParam("in2", ty.vec4<f16>());
     in1->SetLocation(1);
-    in1->SetLocation(2);
+    in2->SetLocation(2);
     auto* func = b.Function("main", outputs, core::ir::Function::PipelineStage::kFragment);
     func->SetParams({in1, in2});
     b.Append(func->Block(), [&] {  //
@@ -1543,7 +1558,7 @@ Outputs = struct @align(8) {
   out2:vec4<f16> @offset(8), @location(2)
 }
 
-%main = @fragment func(%in1:f16 [@location(2)], %in2:vec4<f16>):Outputs {
+%main = @fragment func(%in1:f16 [@location(1)], %in2:vec4<f16> [@location(2)]):Outputs {
   $B1: {
     %4:Outputs = construct %in1, %in2
     ret %4
@@ -1559,10 +1574,10 @@ Outputs = struct @align(8) {
 }
 
 $B1: {  # root
-  %main_loc2_Input:ptr<__in, f16, read> = var @location(2)
-  %main_Input:ptr<__in, vec4<f16>, read> = var
-  %main_loc1_Output:ptr<__out, f16, write> = var @location(1)
-  %main_loc2_Output:ptr<__out, vec4<f16>, write> = var @location(2)
+  %main_loc1_Input:ptr<__in, f16, read> = var undef @location(1)
+  %main_loc2_Input:ptr<__in, vec4<f16>, read> = var undef @location(2)
+  %main_loc1_Output:ptr<__out, f16, write> = var undef @location(1)
+  %main_loc2_Output:ptr<__out, vec4<f16>, write> = var undef @location(2)
 }
 
 %main_inner = func(%in1:f16, %in2:vec4<f16>):Outputs {
@@ -1573,8 +1588,8 @@ $B1: {  # root
 }
 %main = @fragment func():void {
   $B3: {
-    %10:f16 = load %main_loc2_Input
-    %11:vec4<f16> = load %main_Input
+    %10:f16 = load %main_loc1_Input
+    %11:vec4<f16> = load %main_loc2_Input
     %12:Outputs = call %main_inner, %10, %11
     %13:f16 = access %12, 0u
     store %main_loc1_Output, %13
@@ -1585,7 +1600,8 @@ $B1: {  # root
 }
 )";
 
-    ShaderIOConfig config;
+    core::ir::transform::PushConstantLayout push_constants;
+    ShaderIOConfig config{push_constants};
     config.polyfill_f16_io = false;
     Run(ShaderIO, config);
 
@@ -1624,7 +1640,7 @@ TEST_F(SpirvWriter_ShaderIOTest, F16_IO_WithPolyfill) {
     auto* in1 = b.FunctionParam("in1", ty.f16());
     auto* in2 = b.FunctionParam("in2", ty.vec4<f16>());
     in1->SetLocation(1);
-    in1->SetLocation(2);
+    in2->SetLocation(2);
     auto* func = b.Function("main", outputs, core::ir::Function::PipelineStage::kFragment);
     func->SetParams({in1, in2});
     b.Append(func->Block(), [&] {  //
@@ -1637,7 +1653,7 @@ Outputs = struct @align(8) {
   out2:vec4<f16> @offset(8), @location(2)
 }
 
-%main = @fragment func(%in1:f16 [@location(2)], %in2:vec4<f16>):Outputs {
+%main = @fragment func(%in1:f16 [@location(1)], %in2:vec4<f16> [@location(2)]):Outputs {
   $B1: {
     %4:Outputs = construct %in1, %in2
     ret %4
@@ -1653,10 +1669,10 @@ Outputs = struct @align(8) {
 }
 
 $B1: {  # root
-  %main_loc2_Input:ptr<__in, f32, read> = var @location(2)
-  %main_Input:ptr<__in, vec4<f32>, read> = var
-  %main_loc1_Output:ptr<__out, f32, write> = var @location(1)
-  %main_loc2_Output:ptr<__out, vec4<f32>, write> = var @location(2)
+  %main_loc1_Input:ptr<__in, f32, read> = var undef @location(1)
+  %main_loc2_Input:ptr<__in, vec4<f32>, read> = var undef @location(2)
+  %main_loc1_Output:ptr<__out, f32, write> = var undef @location(1)
+  %main_loc2_Output:ptr<__out, vec4<f32>, write> = var undef @location(2)
 }
 
 %main_inner = func(%in1:f16, %in2:vec4<f16>):Outputs {
@@ -1667,9 +1683,9 @@ $B1: {  # root
 }
 %main = @fragment func():void {
   $B3: {
-    %10:f32 = load %main_loc2_Input
+    %10:f32 = load %main_loc1_Input
     %11:f16 = convert %10
-    %12:vec4<f32> = load %main_Input
+    %12:vec4<f32> = load %main_loc2_Input
     %13:vec4<f16> = convert %12
     %14:Outputs = call %main_inner, %11, %13
     %15:f16 = access %14, 0u
@@ -1683,7 +1699,8 @@ $B1: {  # root
 }
 )";
 
-    ShaderIOConfig config;
+    core::ir::transform::PushConstantLayout push_constants;
+    ShaderIOConfig config{push_constants};
     config.polyfill_f16_io = true;
     Run(ShaderIO, config);
 

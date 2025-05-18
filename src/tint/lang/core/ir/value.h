@@ -104,7 +104,7 @@ class Value : public Castable<Value> {
 
     /// @returns the set of usages of this value. An instruction may appear multiple times if it
     /// uses the value for multiple different operands.
-    const Hashset<Usage, 4>& UsagesUnsorted() { return uses_; }
+    const Hashset<Usage, 4>& UsagesUnsorted() const { return uses_; }
 
     /// @returns a sorted list of usages of this value. The usages are in the order of
     /// <instruction, operand index> where the instructions are ordered earliest instruction to
@@ -158,6 +158,7 @@ class Value : public Castable<Value> {
     /// Bitset of value flags
     tint::EnumSet<Flag> flags_;
 };
+
 }  // namespace tint::core::ir
 
 #endif  // SRC_TINT_LANG_CORE_IR_VALUE_H_

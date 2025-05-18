@@ -15,8 +15,6 @@ struct main_inputs {
 };
 
 
-Texture2D<float4> t : register(t1);
-SamplerState s : register(s2);
 void main_inner(float x) {
   bool v = false;
   if ((x == 0.0f)) {
@@ -24,10 +22,9 @@ void main_inner(float x) {
   } else {
     v = false;
   }
-  switch(int(v)) {
-    default:
-    case int(0):
-    {
+  int v_1 = int(v);
+  {
+    while(true) {
       break;
     }
   }

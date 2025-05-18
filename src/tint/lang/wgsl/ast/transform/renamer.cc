@@ -43,7 +43,6 @@
 #include "src/tint/utils/text/unicode.h"
 
 TINT_INSTANTIATE_TYPEINFO(tint::ast::transform::Renamer);
-TINT_INSTANTIATE_TYPEINFO(tint::ast::transform::Renamer::Data);
 TINT_INSTANTIATE_TYPEINFO(tint::ast::transform::Renamer::Config);
 
 namespace tint::ast::transform {
@@ -51,7 +50,7 @@ namespace tint::ast::transform {
 namespace {
 
 // This list is used for a binary search and must be kept in sorted order.
-const char* const kReservedKeywordsGLSL[] = {
+static constexpr std::array<const char*, 358> kReservedKeywordsGLSL = {
     "abs",
     "acos",
     "acosh",
@@ -413,7 +412,7 @@ const char* const kReservedKeywordsGLSL[] = {
 };
 
 // This list is used for a binary search and must be kept in sorted order.
-const char* const kReservedKeywordsHLSL[] = {
+static constexpr std::array<const char*, 570> kReservedKeywordsHLSL = {
     "AddressU",
     "AddressV",
     "AddressW",
@@ -987,7 +986,7 @@ const char* const kReservedKeywordsHLSL[] = {
 };
 
 // This list is used for a binary search and must be kept in sorted order.
-const char* const kReservedKeywordsMSL[] = {
+static constexpr std::array<const char*, 270> kReservedKeywordsMSL = {
     "HUGE_VALF",
     "HUGE_VALH",
     "INFINITY",
@@ -1262,23 +1261,21 @@ const char* const kReservedKeywordsMSL[] = {
 
 }  // namespace
 
-Renamer::Data::Data(Remappings&& r) : remappings(std::move(r)) {}
-Renamer::Data::Data(const Data&) = default;
-Renamer::Data::~Data() = default;
-
 Renamer::Config::Config() = default;
-Renamer::Config::Config(Target t, bool pu) : target(t), preserve_unicode(pu) {}
-Renamer::Config::Config(Target t, bool pu, Remappings&& remappings)
-    : target(t), preserve_unicode(pu), requested_names(std::move(remappings)) {}
+
+Renamer::Config::Config(Target t) : target(t) {}
+
+Renamer::Config::Config(Target t, Remappings&& remappings)
+    : target(t), requested_names(std::move(remappings)) {}
+
 Renamer::Config::Config(const Config&) = default;
+
 Renamer::Config::~Config() = default;
 
 Renamer::Renamer() = default;
 Renamer::~Renamer() = default;
 
-Transform::ApplyResult Renamer::Apply(const Program& src,
-                                      const DataMap& inputs,
-                                      DataMap& outputs) const {
+Transform::ApplyResult Renamer::Apply(const Program& src, const DataMap& inputs, DataMap&) const {
     Hashset<Symbol, 16> global_decls;
     for (auto* decl : src.AST().TypeDecls()) {
         global_decls.Add(decl->name->symbol);
@@ -1346,12 +1343,10 @@ Transform::ApplyResult Renamer::Apply(const Program& src,
     }
 
     Target target = Target::kAll;
-    bool preserve_unicode = false;
     const Remappings* requested_names = nullptr;
 
     if (auto* cfg = inputs.Get<Config>()) {
         target = cfg->target;
-        preserve_unicode = cfg->preserve_unicode;
         requested_names = &(cfg->requested_names);
     }
 
@@ -1360,29 +1355,25 @@ Transform::ApplyResult Renamer::Apply(const Program& src,
         if (target == Target::kAll) {
             return true;
         }
+        if (requested_names->count(symbol.Name())) {
+            return true;
+        }
         auto name = symbol.Name();
         if (!tint::utf8::IsASCII(name)) {
-            // name is non-ascii. All of the backend keywords are ascii, so rename if we're not
-            // preserving unicode symbols.
-            return !preserve_unicode;
+            // name is non-ascii. All of the backend keywords are ascii, so rename.
+            return true;
         }
         switch (target) {
             case Target::kGlslKeywords:
-                return std::binary_search(kReservedKeywordsGLSL,
-                                          kReservedKeywordsGLSL +
-                                              sizeof(kReservedKeywordsGLSL) / sizeof(const char*),
-                                          name) ||
+                return std::binary_search(kReservedKeywordsGLSL.cbegin(),
+                                          kReservedKeywordsGLSL.cend(), name) ||
                        name.compare(0, 3, "gl_") == 0 || name.find("__") != std::string::npos;
             case Target::kHlslKeywords:
-                return std::binary_search(
-                    kReservedKeywordsHLSL,
-                    kReservedKeywordsHLSL + sizeof(kReservedKeywordsHLSL) / sizeof(const char*),
-                    name);
+                return std::binary_search(kReservedKeywordsHLSL.cbegin(),
+                                          kReservedKeywordsHLSL.cend(), name);
             case Target::kMslKeywords:
-                return std::binary_search(
-                    kReservedKeywordsMSL,
-                    kReservedKeywordsMSL + sizeof(kReservedKeywordsMSL) / sizeof(const char*),
-                    name);
+                return std::binary_search(kReservedKeywordsMSL.cbegin(),
+                                          kReservedKeywordsMSL.cend(), name);
             default:
                 break;
         }
@@ -1423,12 +1414,6 @@ Transform::ApplyResult Renamer::Apply(const Program& src,
     });
 
     ctx.Clone();
-
-    Remappings out;
-    for (auto& it : remappings) {
-        out[it.key->Name()] = it.value.Name();
-    }
-    outputs.Add<Data>(std::move(out));
 
     return resolver::Resolve(b);
 }

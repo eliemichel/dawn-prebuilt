@@ -36,12 +36,13 @@
 
 include(cmd/fuzz/ir/as/BUILD.cmake)
 include(cmd/fuzz/ir/dis/BUILD.cmake)
+include(cmd/fuzz/ir/helpers/BUILD.cmake)
 
-if(TINT_BUILD_IR_BINARY AND TINT_BUILD_IR_FUZZER AND ((NOT IS_ASAN) OR BUILD_WITH_CHROMIUM))
+if(TINT_BUILD_IR_BINARY AND TINT_BUILD_WGSL_READER)
 ################################################################################
 # Target:    tint_cmd_fuzz_ir_fuzz_cmd
 # Kind:      fuzz_cmd
-# Condition: TINT_BUILD_IR_BINARY AND TINT_BUILD_IR_FUZZER AND ((NOT IS_ASAN) OR BUILD_WITH_CHROMIUM)
+# Condition: TINT_BUILD_IR_BINARY AND TINT_BUILD_WGSL_READER
 ################################################################################
 tint_add_target(tint_cmd_fuzz_ir_fuzz_cmd fuzz_cmd
   cmd/fuzz/ir/main_fuzz.cc
@@ -49,6 +50,7 @@ tint_add_target(tint_cmd_fuzz_ir_fuzz_cmd fuzz_cmd
 
 tint_target_add_dependencies(tint_cmd_fuzz_ir_fuzz_cmd fuzz_cmd
   tint_api_common
+  tint_cmd_fuzz_ir_helpers
   tint_cmd_fuzz_ir_fuzz
   tint_lang_core
   tint_lang_core_constant
@@ -58,23 +60,19 @@ tint_target_add_dependencies(tint_cmd_fuzz_ir_fuzz_cmd fuzz_cmd
   tint_lang_hlsl_writer_raise_fuzz
   tint_lang_wgsl_program_fuzz
   tint_lang_wgsl_writer_raise_fuzz
-  tint_lang_wgsl_fuzz
+  tint_utils
   tint_utils_bytes
-  tint_utils_cli
+  tint_utils_command
   tint_utils_containers
   tint_utils_diagnostic
   tint_utils_ice
-  tint_utils_id
   tint_utils_macros
   tint_utils_math
   tint_utils_memory
-  tint_utils_reflection
-  tint_utils_result
   tint_utils_rtti
   tint_utils_strconv
   tint_utils_symbol
   tint_utils_text
-  tint_utils_traits
 )
 
 tint_target_add_external_dependencies(tint_cmd_fuzz_ir_fuzz_cmd fuzz_cmd
@@ -98,14 +96,9 @@ if(TINT_BUILD_IR_BINARY)
   tint_target_add_dependencies(tint_cmd_fuzz_ir_fuzz_cmd fuzz_cmd
     tint_lang_core_ir_binary
     tint_lang_core_ir_binary_fuzz
-  )
-endif(TINT_BUILD_IR_BINARY)
-
-if(TINT_BUILD_IR_BINARY AND TINT_BUILD_IR_FUZZER)
-  tint_target_add_dependencies(tint_cmd_fuzz_ir_fuzz_cmd fuzz_cmd
     tint_utils_protos_ir_fuzz_proto
   )
-endif(TINT_BUILD_IR_BINARY AND TINT_BUILD_IR_FUZZER)
+endif(TINT_BUILD_IR_BINARY)
 
 if(TINT_BUILD_MSL_WRITER)
   tint_target_add_dependencies(tint_cmd_fuzz_ir_fuzz_cmd fuzz_cmd
@@ -133,7 +126,7 @@ endif(TINT_BUILD_WGSL_WRITER)
 
 tint_target_set_output_name(tint_cmd_fuzz_ir_fuzz_cmd fuzz_cmd "tint_ir_fuzzer")
 
-endif(TINT_BUILD_IR_BINARY AND TINT_BUILD_IR_FUZZER AND ((NOT IS_ASAN) OR BUILD_WITH_CHROMIUM))
+endif(TINT_BUILD_IR_BINARY AND TINT_BUILD_WGSL_READER)
 ################################################################################
 # Target:    tint_cmd_fuzz_ir_fuzz
 # Kind:      fuzz
@@ -145,31 +138,27 @@ tint_add_target(tint_cmd_fuzz_ir_fuzz fuzz
 
 tint_target_add_dependencies(tint_cmd_fuzz_ir_fuzz fuzz
   tint_api_common
+  tint_cmd_fuzz_ir_helpers
   tint_lang_core
   tint_lang_core_constant
   tint_lang_core_ir
+  tint_lang_core_ir_transform
   tint_lang_core_type
   tint_lang_wgsl
   tint_lang_wgsl_ast
-  tint_lang_wgsl_common
-  tint_lang_wgsl_features
-  tint_lang_wgsl_helpers
   tint_lang_wgsl_program
   tint_lang_wgsl_sem
+  tint_utils
   tint_utils_bytes
   tint_utils_containers
   tint_utils_diagnostic
   tint_utils_ice
-  tint_utils_id
   tint_utils_macros
   tint_utils_math
   tint_utils_memory
-  tint_utils_reflection
-  tint_utils_result
   tint_utils_rtti
   tint_utils_symbol
   tint_utils_text
-  tint_utils_traits
 )
 
 tint_target_add_external_dependencies(tint_cmd_fuzz_ir_fuzz fuzz

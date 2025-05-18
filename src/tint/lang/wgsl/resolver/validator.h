@@ -35,9 +35,9 @@
 
 #include "src/tint/lang/core/evaluation_stage.h"
 #include "src/tint/lang/core/type/input_attachment.h"
+#include "src/tint/lang/wgsl/allowed_features.h"
 #include "src/tint/lang/wgsl/ast/input_attachment_index_attribute.h"
 #include "src/tint/lang/wgsl/ast/pipeline_stage.h"
-#include "src/tint/lang/wgsl/common/allowed_features.h"
 #include "src/tint/lang/wgsl/program/program_builder.h"
 #include "src/tint/lang/wgsl/resolver/sem_helper.h"
 #include "src/tint/utils/containers/hashmap.h"
@@ -163,16 +163,8 @@ class Validator {
     bool IsPlain(const core::type::Type* type) const;
 
     /// @param type the given type
-    /// @returns true if the given type is a fixed-footprint type
-    bool IsFixedFootprint(const core::type::Type* type) const;
-
-    /// @param type the given type
     /// @returns true if the given type is storable
     bool IsStorable(const core::type::Type* type) const;
-
-    /// @param type the given type
-    /// @returns true if the given type is host-shareable
-    bool IsHostShareable(const core::type::Type* type) const;
 
     /// Validates the enabled extensions
     /// @param enables the extension enables
@@ -467,6 +459,18 @@ class Validator {
                                        const core::type::Type* type,
                                        const Source& source) const;
 
+    /// Validates a binding array type
+    /// @param t the binding array to validate
+    /// @param source the source of the binding array type
+    /// @returns true on success, false otherwise
+    bool BindingArray(const core::type::BindingArray* t, const Source& source) const;
+
+    /// Validates a subgroup matrix type
+    /// @param t the subgroup matrix type to validate
+    /// @param source the source of the subgroup matrix type
+    /// @returns true on success, false otherwise
+    bool SubgroupMatrix(const core::type::SubgroupMatrix* t, const Source& source) const;
+
     /// Validates a structure
     /// @param str the structure to validate
     /// @param stage the current pipeline stage
@@ -523,20 +527,28 @@ class Validator {
     bool Vector(const core::type::Type* el_ty, const Source& source) const;
 
     /// Validates an array constructor
-    /// @param ctor the call expresion to validate
+    /// @param ctor the call expression to validate
     /// @param arr_type the type of the array
     /// @returns true on success, false otherwise
     bool ArrayConstructor(const ast::CallExpression* ctor, const sem::Array* arr_type) const;
+
+    /// Validates a subgroup matrix constructor
+    /// @param ctor the call expression to validate
+    /// @param subgroup_matrix_type the type of the subgroup matrix
+    /// @returns true on success, false otherwise
+    bool SubgroupMatrixConstructor(const ast::CallExpression* ctor,
+                                   const core::type::SubgroupMatrix* subgroup_matrix_type) const;
+
+    /// Validates a subgroupShuffle builtin functions including Up,Down, and Xor.
+    /// @param fn the builtin call type
+    /// @param call the builtin call to validate
+    /// @returns true on success, false otherwise
+    bool SubgroupShuffleFunction(wgsl::BuiltinFn fn, const sem::Call* call) const;
 
     /// Validates a texture builtin function
     /// @param call the builtin call to validate
     /// @returns true on success, false otherwise
     bool TextureBuiltinFn(const sem::Call* call) const;
-
-    /// Validates a workgroupUniformLoad builtin function
-    /// @param call the builtin call to validate
-    /// @returns true on success, false otherwise
-    bool WorkgroupUniformLoad(const sem::Call* call) const;
 
     /// Validates a subgroupBroadcast builtin function
     /// @param call the builtin call to validate

@@ -1,9 +1,7 @@
 cbuffer cbuffer_constants : register(b0, space1) {
   uint4 constants[1];
 };
-
 RWByteAddressBuffer result : register(u1, space1);
-
 RWByteAddressBuffer s : register(u0);
 
 int satomicLoad(uint offset) {
@@ -14,7 +12,7 @@ int satomicLoad(uint offset) {
 
 
 int runTest() {
-  return satomicLoad((4u * (0u + uint(constants[0].x))));
+  return satomicLoad((4u * min((0u + uint(constants[0].x)), 2u)));
 }
 
 [numthreads(1, 1, 1)]

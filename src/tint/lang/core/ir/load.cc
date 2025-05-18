@@ -50,9 +50,17 @@ Load::Load(Id id, InstructionResult* result, Value* from) : Base(id) {
 Load::~Load() = default;
 
 Load* Load::Clone(CloneContext& ctx) {
-    auto* new_result = ctx.Clone(Result(0));
+    auto* new_result = ctx.Clone(Result());
     auto* from = ctx.Remap(From());
     return ctx.ir.CreateInstruction<Load>(new_result, from);
+}
+
+core::ir::Instruction::Accesses Load::GetSideEffects() const {
+    // Always inline things in the `handle` address space
+    if (From()->Type()->As<core::type::Pointer>()->AddressSpace() == core::AddressSpace::kHandle) {
+        return Instruction::Accesses{};
+    }
+    return Instruction::Accesses{Instruction::Access::kLoad};
 }
 
 }  // namespace tint::core::ir

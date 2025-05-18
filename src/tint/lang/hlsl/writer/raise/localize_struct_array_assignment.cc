@@ -29,7 +29,6 @@
 
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/validator.h"
-#include "src/tint/utils/result/result.h"
 
 namespace tint::hlsl::writer::raise {
 namespace {
@@ -138,8 +137,8 @@ struct State {
         for (auto* inst : ir.Instructions()) {
             // Inline pointers
             if (auto* l = inst->As<core::ir::Let>()) {
-                if (l->Result(0)->Type()->Is<core::type::Pointer>()) {
-                    l->Result(0)->ReplaceAllUsesWith(l->Value());
+                if (l->Result()->Type()->Is<core::type::Pointer>()) {
+                    l->Result()->ReplaceAllUsesWith(l->Value());
                     l->Destroy();
                 }
             }
@@ -158,7 +157,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> LocalizeStructArrayAssignment(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "LocalizeStructArrayAssignment transform");
+    auto result = ValidateAndDumpIfNeeded(ir, "hlsl.LocalizeStructArrayAssignment");
     if (result != Success) {
         return result.Failure();
     }

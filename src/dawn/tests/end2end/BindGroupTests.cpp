@@ -42,10 +42,20 @@ constexpr static uint32_t kRTSize = 8;
 
 class BindGroupTests : public DawnTest {
   protected:
+    wgpu::Limits GetRequiredLimits(const wgpu::Limits& supported) override {
+        // TODO(crbug.com/383593270): Enable all the limits.
+        wgpu::Limits required = {};
+        required.maxStorageBuffersInVertexStage = supported.maxStorageBuffersInVertexStage;
+        required.maxStorageBuffersInFragmentStage = supported.maxStorageBuffersInFragmentStage;
+        required.maxStorageBuffersPerShaderStage = supported.maxStorageBuffersPerShaderStage;
+        required.maxStorageTexturesInFragmentStage = supported.maxStorageTexturesInFragmentStage;
+        required.maxStorageTexturesPerShaderStage = supported.maxStorageTexturesPerShaderStage;
+        return required;
+    }
+
     void SetUp() override {
         DawnTest::SetUp();
-        mMinUniformBufferOffsetAlignment =
-            GetSupportedLimits().limits.minUniformBufferOffsetAlignment;
+        mMinUniformBufferOffsetAlignment = GetSupportedLimits().minUniformBufferOffsetAlignment;
     }
     wgpu::CommandBuffer CreateSimpleComputeCommandBuffer(const wgpu::ComputePipeline& pipeline,
                                                          const wgpu::BindGroup& bindGroup) {
@@ -328,11 +338,12 @@ TEST_P(BindGroupTests, UBOSamplerAndTexture) {
                              {{0, buffer, 0, sizeof(transform)}, {1, sampler}, {2, textureView}});
 
     wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
-    wgpu::ImageCopyBuffer imageCopyBuffer =
-        utils::CreateImageCopyBuffer(stagingBuffer, 0, widthInBytes);
-    wgpu::ImageCopyTexture imageCopyTexture = utils::CreateImageCopyTexture(texture, 0, {0, 0, 0});
+    wgpu::TexelCopyBufferInfo texelCopyBufferInfo =
+        utils::CreateTexelCopyBufferInfo(stagingBuffer, 0, widthInBytes);
+    wgpu::TexelCopyTextureInfo texelCopyTextureInfo =
+        utils::CreateTexelCopyTextureInfo(texture, 0, {0, 0, 0});
     wgpu::Extent3D copySize = {width, height, 1};
-    encoder.CopyBufferToTexture(&imageCopyBuffer, &imageCopyTexture, &copySize);
+    encoder.CopyBufferToTexture(&texelCopyBufferInfo, &texelCopyTextureInfo, &copySize);
     wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
     pass.SetPipeline(pipeline);
     pass.SetBindGroup(0, bindGroup);
@@ -794,6 +805,8 @@ TEST_P(BindGroupTests, ThreePipelinesInSameRenderpass) {
 
 // Test that bind groups set for one pipeline are still set when the pipeline changes.
 TEST_P(BindGroupTests, BindGroupsPersistAfterPipelineChange) {
+    DAWN_SUPPRESS_TEST_IF(GetSupportedLimits().maxStorageBuffersInFragmentStage < 1);
+
     utils::BasicRenderPass renderPass = utils::CreateBasicRenderPass(device, kRTSize, kRTSize);
 
     // Create a bind group layout which uses a single dynamic uniform buffer.
@@ -874,6 +887,7 @@ TEST_P(BindGroupTests, BindGroupsPersistAfterPipelineChange) {
 TEST_P(BindGroupTests, DrawThenChangePipelineAndBindGroup) {
     // TODO(anglebug.com/3032): fix failure in ANGLE/D3D11
     DAWN_SUPPRESS_TEST_IF(IsANGLE() && IsWindows());
+    DAWN_SUPPRESS_TEST_IF(GetSupportedLimits().maxStorageBuffersInFragmentStage < 1);
 
     utils::BasicRenderPass renderPass = utils::CreateBasicRenderPass(device, kRTSize, kRTSize);
 
@@ -1163,6 +1177,8 @@ TEST_P(BindGroupTests, DynamicOffsetOrder) {
 // conflict. This can happen if the backend treats dynamic bindings separately from non-dynamic
 // bindings.
 TEST_P(BindGroupTests, DynamicAndNonDynamicBindingsDoNotConflictAfterRemapping) {
+    DAWN_SUPPRESS_TEST_IF(IsWARP());
+
     auto RunTestWith = [&](bool dynamicBufferFirst) {
         uint32_t dynamicBufferBindingNumber = dynamicBufferFirst ? 0 : 1;
         uint32_t bufferBindingNumber = dynamicBufferFirst ? 1 : 0;
@@ -1326,6 +1342,8 @@ TEST_P(BindGroupTests, DynamicBindingNoneVisibility) {
 
 // Test that bind group bindings may have unbounded and arbitrary binding numbers
 TEST_P(BindGroupTests, ArbitraryBindingNumbers) {
+    DAWN_SUPPRESS_TEST_IF(IsWARP());
+
     utils::BasicRenderPass renderPass = utils::CreateBasicRenderPass(device, kRTSize, kRTSize);
 
     wgpu::ShaderModule vsModule = utils::CreateShaderModule(device, R"(
@@ -1468,6 +1486,8 @@ TEST_P(BindGroupTests, EmptyLayout) {
 // This is a regression test for crbug.com/dawn/410 which tests that it can successfully compile and
 // execute the shader.
 TEST_P(BindGroupTests, ReadonlyStorage) {
+    DAWN_SUPPRESS_TEST_IF(GetSupportedLimits().maxStorageBuffersInFragmentStage < 1);
+
     utils::ComboRenderPipelineDescriptor pipelineDescriptor;
 
     pipelineDescriptor.vertex.module = utils::CreateShaderModule(device, R"(
@@ -1537,8 +1557,10 @@ TEST_P(BindGroupTests, CreateWithDestroyedResource) {
 
     // Test various usages and binding types since they take different backend code paths.
     doBufferTest(wgpu::BufferBindingType::Uniform, wgpu::BufferUsage::Uniform);
-    doBufferTest(wgpu::BufferBindingType::Storage, wgpu::BufferUsage::Storage);
-    doBufferTest(wgpu::BufferBindingType::ReadOnlyStorage, wgpu::BufferUsage::Storage);
+    if (GetSupportedLimits().maxStorageBuffersInFragmentStage > 0) {
+        doBufferTest(wgpu::BufferBindingType::Storage, wgpu::BufferUsage::Storage);
+        doBufferTest(wgpu::BufferBindingType::ReadOnlyStorage, wgpu::BufferUsage::Storage);
+    }
 
     // Test a sampled texture.
     {

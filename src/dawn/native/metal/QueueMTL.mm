@@ -72,13 +72,11 @@ MaybeError Queue::Initialize() {
         return DAWN_INTERNAL_ERROR("Failed to allocate MTLCommandQueue.");
     }
 
-    if (@available(macOS 10.14, iOS 12.0, *)) {
-        mMtlSharedEvent.Acquire([mtlDevice newSharedEvent]);
-        if (mMtlSharedEvent == nil) {
-            return DAWN_INTERNAL_ERROR("Failed to create MTLSharedEvent.");
-        }
-        DAWN_TRY_ASSIGN(mSharedFence, GetOrCreateSharedFence());
+    mMtlSharedEvent.Acquire([mtlDevice newSharedEvent]);
+    if (mMtlSharedEvent == nil) {
+        return DAWN_INTERNAL_ERROR("Failed to create MTLSharedEvent.");
     }
+    DAWN_TRY_ASSIGN(mSharedFence, GetOrCreateSharedFence());
 
     return mCommandContext.PrepareNextCommandBuffer(*mCommandQueue);
 }
@@ -140,8 +138,6 @@ MaybeError Queue::SubmitPendingCommandBuffer() {
 
     auto platform = GetDevice()->GetPlatform();
 
-    IncrementLastSubmittedCommandSerial();
-
     // Acquire the pending command buffer, which is retained. It must be released later.
     NSPRef<id<MTLCommandBuffer>> pendingCommands = mCommandContext.AcquireCommands();
 
@@ -166,7 +162,7 @@ MaybeError Queue::SubmitPendingCommandBuffer() {
 
     // Update the completed serial once the completed handler is fired. Make a local copy of
     // mLastSubmittedSerial so it is captured by value.
-    ExecutionSerial pendingSerial = GetLastSubmittedCommandSerial();
+    ExecutionSerial pendingSerial = GetPendingCommandSerial();
     // this ObjC block runs on a different thread
     [*pendingCommands addCompletedHandler:^(id<MTLCommandBuffer>) {
         TRACE_EVENT_ASYNC_END0(platform, GPUWork, "DeviceMTL::SubmitPendingCommandBuffer",
@@ -185,12 +181,13 @@ MaybeError Queue::SubmitPendingCommandBuffer() {
 
     TRACE_EVENT_ASYNC_BEGIN0(platform, GPUWork, "DeviceMTL::SubmitPendingCommandBuffer",
                              uint64_t(pendingSerial));
-    if (@available(macOS 10.14, iOS 12.0, *)) {
-        DAWN_ASSERT(mSharedFence);
-        [*pendingCommands encodeSignalEvent:mSharedFence->GetMTLSharedEvent()
-                                      value:static_cast<uint64_t>(pendingSerial)];
-    }
+
+    DAWN_ASSERT(mSharedFence);
+    [*pendingCommands encodeSignalEvent:mSharedFence->GetMTLSharedEvent()
+                                  value:static_cast<uint64_t>(pendingSerial)];
+
     [*pendingCommands commit];
+    IncrementLastSubmittedCommandSerial();
 
     return mCommandContext.PrepareNextCommandBuffer(*mCommandQueue);
 }

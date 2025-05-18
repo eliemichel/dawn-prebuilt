@@ -60,17 +60,24 @@ class PlatformFunctions {
                                                       _COM_Outptr_ void** ppFactory);
     PFN_CREATE_DXGI_FACTORY2 createDxgiFactory2 = nullptr;
 
-    // Functions from d3d3compiler.dll
+    // Functions from D3DCompiler_47.dll
     pD3DCompile d3dCompile = nullptr;
     pD3DDisassemble d3dDisassemble = nullptr;
+
+    // Functions from kernelbase.dll
+    using PFN_COMPARE_OBJECT_HANDLES = BOOL(WINAPI*)(HANDLE hFirstObjectHandle,
+                                                     HANDLE hSecondObjectHandle);
+    PFN_COMPARE_OBJECT_HANDLES compareObjectHandles = nullptr;
 
   private:
     MaybeError LoadDXGI();
     MaybeError LoadFXCompiler();
+    MaybeError LoadKernelBase();
     void InitWindowsVersion();
 
     DynamicLib mDXGILib;
     DynamicLib mFXCompilerLib;
+    DynamicLib mKernelBaseLib;
 
     uint64_t mCurrentBuildNumber;
 };

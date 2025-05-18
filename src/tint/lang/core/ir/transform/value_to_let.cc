@@ -37,11 +37,6 @@ namespace tint::core::ir::transform {
 
 namespace {
 
-/// Access is an enumerator of memory access operations
-enum class Access : uint8_t { kLoad, kStore };
-/// Accesses is a set of of Access
-using Accesses = EnumSet<Access>;
-
 /// PIMPL state for the transform.
 struct State {
     /// The IR module.
@@ -60,7 +55,7 @@ struct State {
     // marked-for or ruled-out-for inlining.
     Hashset<ir::InstructionResult*, 32> pending_resolution{};
     // The accesses of the values in pending_resolution.
-    Access pending_access = Access::kLoad;
+    Instruction::Access pending_access = Instruction::Access::kLoad;
 
     /// Process the module.
     void Process() {
@@ -80,7 +75,7 @@ struct State {
             TINT_ASSERT(inst->Results().Length() < 2);
 
             // The memory accesses of this instruction
-            auto accesses = AccessesFor(inst);
+            auto accesses = inst->GetSideEffects();
 
             // A pointer access chain will be inlined by the backends. For backends which don't
             // provide pointer lets we need to force any arguments into lets such the occur in the
@@ -129,42 +124,19 @@ struct State {
                 }
             }
 
-            if (accesses.Contains(Access::kStore)) {  // Note: Also handles load + store
+            if (accesses.Contains(
+                    Instruction::Access::kStore)) {  // Note: Also handles load + store
                 PutPendingInLets();
-                pending_access = Access::kStore;
+                pending_access = Instruction::Access::kStore;
                 inst = MaybePutInLet(inst, accesses);
-            } else if (accesses.Contains(Access::kLoad)) {
-                if (pending_access != Access::kLoad) {
+            } else if (accesses.Contains(Instruction::Access::kLoad)) {
+                if (pending_access != Instruction::Access::kLoad) {
                     PutPendingInLets();
-                    pending_access = Access::kLoad;
+                    pending_access = Instruction::Access::kLoad;
                 }
                 inst = MaybePutInLet(inst, accesses);
             }
         }
-    }
-
-    /// @returns the accesses that may be performed by the instruction @p inst
-    Accesses AccessesFor(ir::Instruction* inst) {
-        return tint::Switch<Accesses>(
-            inst,  //
-            [&](const ir::Load* l) {
-                // Always inline things in the `handle` address space
-                if (l->From()->Type()->As<core::type::Pointer>()->AddressSpace() ==
-                    core::AddressSpace::kHandle) {
-                    return Accesses{};
-                }
-                return Accesses{Access::kLoad};
-            },                                                              //
-            [&](const ir::LoadVectorElement*) { return Access::kLoad; },    //
-            [&](const ir::Store*) { return Access::kStore; },               //
-            [&](const ir::StoreVectorElement*) { return Access::kStore; },  //
-            [&](const ir::Call*) {
-                if (inst->IsAnyOf<core::ir::Bitcast>()) {
-                    return Accesses{};
-                }
-                return Accesses{Access::kLoad, Access::kStore};
-            },
-            [&](Default) { return Accesses{}; });
     }
 
     void PutPendingInLets() {
@@ -174,12 +146,13 @@ struct State {
         pending_resolution.Clear();
     }
 
-    core::ir::Instruction* MaybePutInLet(core::ir::Instruction* inst, Accesses& accesses) {
+    core::ir::Instruction* MaybePutInLet(core::ir::Instruction* inst,
+                                         Instruction::Accesses& accesses) {
         if (auto* result = inst->Result(0)) {
             auto& usages = result->UsagesUnsorted();
             switch (result->NumUsages()) {
                 case 0:  // No usage
-                    if (accesses.Contains(Access::kStore)) {
+                    if (accesses.Contains(Instruction::Access::kStore)) {
                         // This instruction needs to be emitted but has no uses, so we need to
                         // make sure that it will be used in a statement. Function call
                         // instructions with no uses will be emitted as call statements, so we
@@ -212,7 +185,7 @@ struct State {
     }
 
     bool IsPointerAccess(core::ir::Instruction* inst) {
-        return inst->Is<core::ir::Access>() && inst->Result(0)->Type()->Is<core::type::Pointer>();
+        return inst->Is<core::ir::Access>() && inst->Result()->Type()->Is<core::type::Pointer>();
     }
 
     /// PutInLet places the value into a new 'let' instruction, immediately after the value's
@@ -227,11 +200,11 @@ struct State {
         }
 
         auto* let = b.Let(value->Type());
-        value->ReplaceAllUsesWith(let->Result(0));
+        value->ReplaceAllUsesWith(let->Result());
         let->SetValue(value);
         let->InsertAfter(inst);
         if (auto name = b.ir.NameOf(value); name.IsValid()) {
-            b.ir.SetName(let->Result(0), name);
+            b.ir.SetName(let->Result(), name);
             b.ir.ClearName(value);
         }
         return let;
@@ -244,10 +217,10 @@ struct State {
 
         for (auto* inst : ir.Instructions()) {
             if (auto* l = inst->As<ir::Let>()) {
-                if (!l->Result(0)->Type()->Is<core::type::Pointer>()) {
+                if (!l->Result()->Type()->Is<core::type::Pointer>()) {
                     continue;
                 }
-                l->Result(0)->ReplaceAllUsesWith(l->Value());
+                l->Result()->ReplaceAllUsesWith(l->Value());
                 l->Destroy();
             }
         }
@@ -257,14 +230,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> ValueToLet(Module& ir, const ValueToLetConfig& cfg) {
-    auto result = ValidateAndDumpIfNeeded(ir, "ValueToLet transform",
-                                          core::ir::Capabilities{
-                                              core::ir::Capability::kAllow8BitIntegers,
-                                              core::ir::Capability::kAllowPointersInStructures,
-                                              core::ir::Capability::kAllowVectorElementPointer,
-                                              core::ir::Capability::kAllowHandleVarsWithoutBindings,
-                                              core::ir::Capability::kAllowClipDistancesOnF32,
-                                          });
+    auto result = ValidateAndDumpIfNeeded(ir, "core.ValueToLet", kValueToLetCapabilities);
     if (result != Success) {
         return result;
     }

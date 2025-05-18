@@ -29,11 +29,10 @@
 #define SRC_TINT_LANG_WGSL_INSPECTOR_INSPECTOR_H_
 
 #include <map>
-#include <memory>
 #include <string>
 #include <tuple>
 #include <unordered_map>
-#include <utility>
+#include <unordered_set>
 #include <vector>
 
 #include "src/tint/api/common/override_id.h"
@@ -43,9 +42,7 @@
 #include "src/tint/lang/wgsl/inspector/resource_binding.h"
 #include "src/tint/lang/wgsl/inspector/scalar.h"
 #include "src/tint/lang/wgsl/program/program.h"
-#include "src/tint/lang/wgsl/sem/call.h"
 #include "src/tint/lang/wgsl/sem/sampler_texture_pair.h"
-#include "src/tint/utils/containers/unique_vector.h"
 
 namespace tint::inspector {
 
@@ -80,89 +77,32 @@ class Inspector {
     /// @returns map of module-constant name to pipeline constant ID
     std::map<std::string, OverrideId> GetNamedOverrideIds();
 
+    /// @returns vector of all overrides
+    std::vector<Override> Overrides();
+
     /// @param entry_point name of the entry point to get information about.
     /// @returns vector of all of the resource bindings.
     std::vector<ResourceBinding> GetResourceBindings(const std::string& entry_point);
 
     /// @param entry_point name of the entry point to get information about.
-    /// @returns vector of all of the bindings for uniform buffers.
-    std::vector<ResourceBinding> GetUniformBufferResourceBindings(const std::string& entry_point);
-
-    /// @param entry_point name of the entry point to get information about.
-    /// @returns vector of all of the bindings for storage buffers.
-    std::vector<ResourceBinding> GetStorageBufferResourceBindings(const std::string& entry_point);
-
-    /// @param entry_point name of the entry point to get information about.
-    /// @returns vector of all of the bindings for read-only storage buffers.
-    std::vector<ResourceBinding> GetReadOnlyStorageBufferResourceBindings(
-        const std::string& entry_point);
-
-    /// @param entry_point name of the entry point to get information about.
-    /// @returns vector of all of the bindings for regular samplers.
-    std::vector<ResourceBinding> GetSamplerResourceBindings(const std::string& entry_point);
-
-    /// @param entry_point name of the entry point to get information about.
-    /// @returns vector of all of the bindings for comparison samplers.
-    std::vector<ResourceBinding> GetComparisonSamplerResourceBindings(
-        const std::string& entry_point);
-
-    /// @param entry_point name of the entry point to get information about.
-    /// @returns vector of all of the bindings for sampled textures.
-    std::vector<ResourceBinding> GetSampledTextureResourceBindings(const std::string& entry_point);
-
-    /// @param entry_point name of the entry point to get information about.
-    /// @returns vector of all of the bindings for multisampled textures.
-    std::vector<ResourceBinding> GetMultisampledTextureResourceBindings(
-        const std::string& entry_point);
-
-    /// @param entry_point name of the entry point to get information about.
-    /// @returns vector of all of the bindings for write-only storage textures.
-    std::vector<ResourceBinding> GetStorageTextureResourceBindings(const std::string& entry_point);
-
-    /// @param entry_point name of the entry point to get information about.
-    /// @returns vector of all of the bindings for depth textures.
-    std::vector<ResourceBinding> GetDepthTextureResourceBindings(const std::string& entry_point);
-
-    /// @param entry_point name of the entry point to get information about.
-    /// @returns vector of all of the bindings for depth textures.
-    std::vector<ResourceBinding> GetDepthMultisampledTextureResourceBindings(
-        const std::string& entry_point);
-
-    /// @param entry_point name of the entry point to get information about.
-    /// @returns vector of all of the bindings for external textures.
-    std::vector<ResourceBinding> GetExternalTextureResourceBindings(const std::string& entry_point);
-
-    /// Gathers all the resource bindings of the input attachment type for the given
-    /// entry point.
-    /// @param entry_point name of the entry point to get information about.
-    /// texture type.
-    /// @returns vector of all of the bindings for input attachments.
-    std::vector<ResourceBinding> GetInputAttachmentResourceBindings(const std::string& entry_point);
-
-    /// @param entry_point name of the entry point to get information about.
     /// @returns vector of all of the sampler/texture sampling pairs that are used
     /// by that entry point.
-    VectorRef<SamplerTexturePair> GetSamplerTextureUses(const std::string& entry_point);
+    std::vector<SamplerTexturePair> GetSamplerTextureUses(const std::string& entry_point);
 
     /// @param entry_point name of the entry point to get information about.
-    /// @param placeholder the sampler binding point to use for texture-only
-    /// access (e.g., textureLoad)
-    /// @returns vector of all of the sampler/texture sampling pairs that are used
-    /// by that entry point.
-    std::vector<SamplerTexturePair> GetSamplerTextureUses(const std::string& entry_point,
-                                                          const BindingPoint& placeholder);
+    /// @param non_sampler_placeholder the sampler binding point placeholder to use for texture-only
+    /// access (e.g., textureLoad).
+    /// @returns vector of sampler/texture sampling pairs that are used by given entry point.
+    /// Contains all texture usages with and without a sampler. Note that storage textures are not
+    /// included.
+    std::vector<SamplerTexturePair> GetSamplerAndNonSamplerTextureUses(
+        const std::string& entry_point,
+        const BindingPoint& non_sampler_placeholder);
 
     /// @returns vector of all valid extension names used by the program. There
     /// will be no duplicated names in the returned vector even if an extension
     /// is enabled multiple times.
     std::vector<std::string> GetUsedExtensionNames();
-
-    /// @returns vector of all enable directives used by the program, each
-    /// enable directive represented by a std::pair<std::string,
-    /// tint::Source::Range> for its extension name and its location of the
-    /// extension name. There may be multiple enable directives for a same
-    /// extension.
-    std::vector<std::pair<std::string, Source>> GetEnableDirectives();
 
     /// The information needed to be supplied.
     enum class TextureQueryType : uint8_t {
@@ -179,6 +119,19 @@ class Inspector {
         uint32_t group = 0;
         /// The binding number
         uint32_t binding = 0;
+
+        /// Equality operator
+        /// @param rhs the LevelSampleInfo to compare against
+        /// @returns true if this LevelSampleInfo is equal to `rhs`
+        bool operator==(const LevelSampleInfo& rhs) const {
+            return this->type == rhs.type && this->group == rhs.group &&
+                   this->binding == rhs.binding;
+        }
+
+        /// Inequality operator
+        /// @param rhs the LevelSampleInfo to compare against
+        /// @returns true if this LevelSampleInfo is not equal to `rhs`
+        bool operator!=(const LevelSampleInfo& rhs) const { return !(*this == rhs); }
     };
 
     /// @param ep the entry point to get the information for
@@ -192,8 +145,19 @@ class Inspector {
   private:
     const Program& program_;
     diag::List diagnostics_;
-    std::unique_ptr<std::unordered_map<std::string, UniqueVector<SamplerTexturePair, 4>>>
-        sampler_targets_;
+
+    struct EntryPointTextureMetadata {
+        std::unordered_set<BindingPoint> textures_used_without_samplers;
+        std::unordered_set<BindingPoint> textures_with_num_levels;
+        std::unordered_set<BindingPoint> textures_with_num_samples;
+        std::unordered_set<SamplerTexturePair> sampling_pairs;
+        bool has_texture_load_with_depth_texture = false;
+        bool has_depth_texture_with_non_comparison_sampler = false;
+    };
+    std::unordered_map<std::string, EntryPointTextureMetadata> texture_metadata_;
+
+    /// Computes the texture metadata for `entry_point` and returns it.
+    const EntryPointTextureMetadata& ComputeTextureMetadata(const std::string& entry_point);
 
     /// @param name name of the entry point to find
     /// @returns a pointer to the entry point if it exists, otherwise returns
@@ -230,41 +194,6 @@ class Inspector {
     /// @param type the type of the variable
     /// @returns the array length of the builtin clip_distances or empty when it is not used
     std::optional<uint32_t> GetClipDistancesBuiltinSize(const core::type::Type* type) const;
-    /// Gathers all the texture resource bindings of the given type for the given
-    /// entry point.
-    /// @param entry_point name of the entry point to get information about.
-    /// @param texture_type the type of the textures to gather.
-    /// @param resource_type the ResourceBinding::ResourceType for the given
-    /// texture type.
-    /// @returns vector of all of the bindings for depth textures.
-    std::vector<ResourceBinding> GetTextureResourceBindings(
-        const std::string& entry_point,
-        const tint::TypeInfo* texture_type,
-        ResourceBinding::ResourceType resource_type);
-
-    /// @param entry_point name of the entry point to get information about.
-    /// @param read_only if true get only read-only bindings, if false get
-    ///                  write-only bindings.
-    /// @returns vector of all of the bindings for the requested storage buffers.
-    std::vector<ResourceBinding> GetStorageBufferResourceBindingsImpl(
-        const std::string& entry_point,
-        bool read_only);
-
-    /// @param entry_point name of the entry point to get information about.
-    /// @param multisampled_only only get multisampled textures if true, otherwise
-    ///                          only get sampled textures.
-    /// @returns vector of all of the bindings for the request storage buffers.
-    std::vector<ResourceBinding> GetSampledTextureResourceBindingsImpl(
-        const std::string& entry_point,
-        bool multisampled_only);
-
-    /// @param entry_point name of the entry point to get information about.
-    /// @returns vector of all of the bindings for the requested storage textures.
-    std::vector<ResourceBinding> GetStorageTextureResourceBindingsImpl(
-        const std::string& entry_point);
-
-    /// Constructs |sampler_targets_| if it hasn't already been instantiated.
-    void GenerateSamplerTargets();
 
     /// @param attributes attributes associated with the parameter or structure member
     /// @returns the interpolation type and sampling modes for the value
@@ -283,47 +212,12 @@ class Inspector {
     /// @returns the list of member types for the `pixel_local` variable accessed via func, if any.
     std::vector<PixelLocalMemberType> ComputePixelLocalMemberTypes(const ast::Function* func) const;
 
-    /// For a N-uple of expressions, resolve to the appropriate global resources
-    /// and call 'cb'.
-    /// 'cb' may be called multiple times.
-    /// Assumes that not being able to resolve the resources is an error, so will
-    /// invoke TINT_ICE when that occurs.
-    /// @tparam N number of expressions in the n-uple
-    /// @tparam F type of the callback provided.
-    /// @param exprs N-uple of expressions to resolve.
-    /// @param cb is a callback function with the signature:
-    /// `void(std::array<const sem::GlobalVariable*, N>)`, which is invoked
-    /// whenever a set of expressions are resolved to globals.
-    template <size_t N, typename F>
-    void GetOriginatingResources(std::array<const ast::Expression*, N> exprs, F&& cb);
+    /// @returns `true` if @p func uses any subgroup matrix types
+    bool UsesSubgroupMatrix(const sem::Function* func) const;
 
     /// @param func the function of the entry point. Must be non-nullptr and true for IsEntryPoint()
     /// @returns the entry point information
     EntryPoint GetEntryPoint(const tint::ast::Function* func);
-
-    /// The information needed to be supplied.
-    enum class TextureUsageType : uint8_t {
-        /// textureLoad
-        kTextureLoad,
-        /// textureNumLevels
-        kTextureNumLevels,
-        /// textureNumSamples
-        kTextureNumSamples,
-    };
-    /// Information on level and sample calls by a given texture binding point
-    struct TextureUsageInfo {
-        /// The type of function
-        TextureUsageType type = TextureUsageType::kTextureNumLevels;
-        /// The group number
-        uint32_t group = 0;
-        /// The binding number
-        uint32_t binding = 0;
-    };
-
-    std::vector<Inspector::TextureUsageInfo> GetTextureUsagesForEntryPoint(
-        const tint::ast::Function& ep,
-        std::function<std::optional<TextureUsageType>(const tint::sem::Call* call,
-                                                      tint::wgsl::BuiltinFn builtin_fn)> filter);
 };
 
 }  // namespace tint::inspector

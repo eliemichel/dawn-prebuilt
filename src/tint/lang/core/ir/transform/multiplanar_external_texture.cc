@@ -34,7 +34,6 @@
 #include "src/tint/lang/core/ir/validator.h"
 #include "src/tint/lang/core/type/external_texture.h"
 #include "src/tint/lang/core/type/sampled_texture.h"
-#include "src/tint/utils/result/result.h"
 
 using namespace tint::core::fluent_types;     // NOLINT
 using namespace tint::core::number_suffixes;  // NOLINT
@@ -85,7 +84,7 @@ struct State {
                 if (!var) {
                     continue;
                 }
-                auto* ptr = var->Result(0)->Type()->As<core::type::Pointer>();
+                auto* ptr = var->Result()->Type()->As<core::type::Pointer>();
                 if (ptr->StoreType()->Is<core::type::ExternalTexture>()) {
                     if (auto res = ReplaceVar(var); DAWN_UNLIKELY(res != Success)) {
                         return res.Failure();
@@ -114,7 +113,7 @@ struct State {
 
     /// @returns a 2D sampled texture type with a f32 sampled type
     const core::type::SampledTexture* SampledTexture() {
-        return ty.Get<core::type::SampledTexture>(core::type::TextureDimension::k2d, ty.f32());
+        return ty.sampled_texture(core::type::TextureDimension::k2d, ty.f32());
     }
 
     /// Replace an external texture variable declaration.
@@ -157,8 +156,8 @@ struct State {
         }
 
         // Replace all uses of the old variable with the new ones.
-        ReplaceUses(old_var->Result(0), plane_0->Result(0), plane_1->Result(0),
-                    external_texture_params->Result(0));
+        ReplaceUses(old_var->Result(), plane_0->Result(), plane_1->Result(),
+                    external_texture_params->Result());
 
         return Success;
     }
@@ -219,21 +218,21 @@ struct State {
                     Value* plane_1_load = nullptr;
                     Value* params_load = nullptr;
                     b.InsertBefore(load, [&] {
-                        plane_0_load = b.Load(plane_0)->Result(0);
-                        plane_1_load = b.Load(plane_1)->Result(0);
-                        params_load = b.Load(params)->Result(0);
+                        plane_0_load = b.Load(plane_0)->Result();
+                        plane_1_load = b.Load(plane_1)->Result();
+                        params_load = b.Load(params)->Result();
                     });
-                    ReplaceUses(load->Result(0), plane_0_load, plane_1_load, params_load);
+                    ReplaceUses(load->Result(), plane_0_load, plane_1_load, params_load);
                     load->Destroy();
                 },
                 [&](CoreBuiltinCall* call) {
                     if (call->Func() == core::BuiltinFn::kTextureDimensions) {
-                        // Use params.visibleSize + vec2u(1, 1) instead of the textureDimensions.
+                        // Use params.apparentSize + vec2u(1, 1) instead of the textureDimensions.
                         b.InsertBefore(call, [&] {
-                            auto* visible_size = b.Access<vec2<u32>>(params, 12_u);
+                            auto* apparent_size = b.Access<vec2<u32>>(params, 12_u);
                             auto* vec2u_1_1 = b.Splat<vec2<u32>>(1_u);
-                            auto* dimensions = b.Add<vec2<u32>>(visible_size, vec2u_1_1);
-                            dimensions->SetResults(Vector{call->DetachResult()});
+                            auto* dimensions = b.Add<vec2<u32>>(apparent_size, vec2u_1_1);
+                            dimensions->SetResult(call->DetachResult());
                         });
                         call->Destroy();
                     } else if (call->Func() == core::BuiltinFn::kTextureLoad) {
@@ -242,7 +241,7 @@ struct State {
                         if (coords->Type()->IsSignedIntegerVector()) {
                             auto* convert = b.Convert(ty.vec2<u32>(), coords);
                             convert->InsertBefore(call);
-                            coords = convert->Result(0);
+                            coords = convert->Result();
                         }
 
                         // Call the `TextureLoadExternal()` helper function.
@@ -316,7 +315,7 @@ struct State {
                            {sym.Register("samplePlane0RectMax"), ty.vec2<f32>()},
                            {sym.Register("samplePlane1RectMin"), ty.vec2<f32>()},
                            {sym.Register("samplePlane1RectMax"), ty.vec2<f32>()},
-                           {sym.Register("visibleSize"), ty.vec2<u32>()},
+                           {sym.Register("apparentSize"), ty.vec2<u32>()},
                            {sym.Register("plane1CoordFactor"), ty.vec2<f32>()}});
         }
         return external_texture_params_struct;
@@ -381,7 +380,7 @@ struct State {
         //                             plane1 : texture_2d<f32>,
         //                             coords : vec2<u32>,
         //                             params : ExternalTextureParams) ->vec4f {
-        //     let clampedCoords = min(coords, params.visibleSize);
+        //     let clampedCoords = min(coords, params.apparentSize);
         //     let plane0_clamped = vec2<u32>(
         //         round(params.loadTransform * vec3<f32>(vec2<f32>(clampedCoords), 1)));
         //     var color : vec4<f32>;
@@ -416,10 +415,10 @@ struct State {
             auto* yuv_to_rgb_conversion_only = b.Access(ty.u32(), params, 1_u);
             auto* yuv_to_rgb_conversion = b.Access(ty.mat3x4<f32>(), params, 2_u);
             auto* load_transform_matrix = b.Access(ty.mat3x2<f32>(), params, 7_u);
-            auto* visible_size = b.Access(ty.vec2<u32>(), params, 12_u);
+            auto* apparent_size = b.Access(ty.vec2<u32>(), params, 12_u);
             auto* plane1_coord_factor = b.Access(ty.vec2<f32>(), params, 13_u);
 
-            auto* clamped_coords = b.Call(vec2u, core::BuiltinFn::kMin, coords, visible_size);
+            auto* clamped_coords = b.Call(vec2u, core::BuiltinFn::kMin, coords, apparent_size);
             auto* clamped_coords_f = b.Convert(vec2f, clamped_coords);
             auto* modified_coords =
                 b.Multiply(vec2f, load_transform_matrix, b.Construct(vec3f, clamped_coords_f, 1_f));
@@ -465,7 +464,7 @@ struct State {
             // Apply gamma correction if needed.
             auto* final_result = b.InstructionResult(vec3f);
             auto* if_gamma_correct = b.If(b.Equal(ty.bool_(), yuv_to_rgb_conversion_only, 0_u));
-            if_gamma_correct->SetResults(final_result);
+            if_gamma_correct->SetResult(final_result);
             b.Append(if_gamma_correct->True(), [&] {
                 auto* gamma_decode_params = b.Access(GammaTransferParams(), params, 3_u);
                 auto* gamma_encode_params = b.Access(GammaTransferParams(), params, 4_u);
@@ -527,7 +526,7 @@ struct State {
         auto* plane_0 = b.FunctionParam("plane_0", SampledTexture());
         auto* plane_1 = b.FunctionParam("plane_1", SampledTexture());
         auto* params = b.FunctionParam("params", ExternalTextureParams());
-        auto* sampler = b.FunctionParam("sampler", ty.sampler());
+        auto* sampler = b.FunctionParam("tint_sampler", ty.sampler());
         auto* coords = b.FunctionParam("coords", ty.vec2<f32>());
         texture_sample_external->SetParams({plane_0, plane_1, params, sampler, coords});
         b.Append(texture_sample_external->Block(), [&] {
@@ -584,7 +583,7 @@ struct State {
             // Apply gamma correction if needed.
             auto* final_result = b.InstructionResult(vec3f);
             auto* if_gamma_correct = b.If(b.Equal(ty.bool_(), yuv_to_rgb_conversion_only, 0_u));
-            if_gamma_correct->SetResults(final_result);
+            if_gamma_correct->SetResult(final_result);
             b.Append(if_gamma_correct->True(), [&] {
                 auto* gamma_decode_params = b.Access(GammaTransferParams(), params, 3_u);
                 auto* gamma_encode_params = b.Access(GammaTransferParams(), params, 4_u);
@@ -610,7 +609,7 @@ struct State {
 Result<SuccessType> MultiplanarExternalTexture(
     Module& ir,
     const tint::transform::multiplanar::BindingsMap& multiplanar_map) {
-    auto result = ValidateAndDumpIfNeeded(ir, "MultiplanarExternalTexture transform");
+    auto result = ValidateAndDumpIfNeeded(ir, "core.MultiplanarExternalTexture");
     if (result != Success) {
         return result;
     }

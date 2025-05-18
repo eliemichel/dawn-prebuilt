@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "dawn/native/CreatePipelineAsyncEvent.h"
+#include "dawn/native/ImmediateConstantsLayout.h"
 #include "dawn/native/vulkan/DeviceVk.h"
 #include "dawn/native/vulkan/FencedDeleter.h"
 #include "dawn/native/vulkan/PipelineCacheVk.h"
@@ -54,12 +55,18 @@ MaybeError ComputePipeline::InitializeImpl() {
     Device* device = ToBackend(GetDevice());
     PipelineLayout* layout = ToBackend(GetLayout());
 
-    // Vulkan devices need cache UUID field to be serialized into pipeline cache keys.
-    StreamIn(&mCacheKey, device->GetDeviceInfo().properties.pipelineCacheUUID);
+    // The cache key is only used for storing VkPipelineCache objects in BlobStore. That's not
+    // done with the monolithic pipeline cache so it's unnecessary work and memory usage.
+    bool buildCacheKey =
+        !device->GetTogglesState().IsEnabled(Toggle::VulkanMonolithicPipelineCache);
+    if (buildCacheKey) {
+        // Vulkan devices need cache UUID field to be serialized into pipeline cache keys.
+        StreamIn(&mCacheKey, device->GetDeviceInfo().properties.pipelineCacheUUID);
+    }
 
     // Compute pipeline doesn't have clamp depth feature.
     // TODO(crbug.com/366291600): Setting immediate data size if needed.
-    DAWN_TRY(InitializeBase(layout, 0));
+    DAWN_TRY(PipelineVk::InitializeBase(layout, mImmediateMask));
 
     VkComputePipelineCreateInfo createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
@@ -78,38 +85,19 @@ MaybeError ComputePipeline::InitializeImpl() {
     ShaderModule* module = ToBackend(computeStage.module.Get());
 
     ShaderModule::ModuleAndSpirv moduleAndSpirv;
-    DAWN_TRY_ASSIGN(
-        moduleAndSpirv,
-        module->GetHandleAndSpirv(
-            SingleShaderStage::Compute, computeStage, layout,
-            /*clampFragDepth*/ false,
-            /*emitPointSize*/ false,
-            /* maxSubgroupSizeForFullSubgroups */
-            IsFullSubgroupsRequired()
-                ? std::make_optional(device->GetLimits().experimentalSubgroupLimits.maxSubgroupSize)
-                : std::nullopt));
+    DAWN_TRY_ASSIGN(moduleAndSpirv,
+                    module->GetHandleAndSpirv(SingleShaderStage::Compute, computeStage, layout,
+                                              /*emitPointSize*/ false, GetImmediateMask()));
 
     createInfo.stage.module = moduleAndSpirv.module;
-    createInfo.stage.pName = moduleAndSpirv.remappedEntryPoint.c_str();
-
-    if (IsFullSubgroupsRequired()) {
-        // Workgroup size validation is handled in ValidateComputeStageWorkgroupSize when compiling
-        // shader module. Vulkan device that support Subgroups feature must support
-        // computeFullSubgroups.
-        DAWN_ASSERT(device->GetDeviceInfo().subgroupSizeControlFeatures.computeFullSubgroups);
-        createInfo.stage.flags |= VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT |
-                                  VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT;
-    }
-
+    createInfo.stage.pName = kRemappedEntryPointName;
     createInfo.stage.pSpecializationInfo = nullptr;
 
     VkPipelineShaderStageRequiredSubgroupSizeCreateInfoEXT subgroupSizeInfo = {};
     PNextChainBuilder stageExtChain(&createInfo.stage);
 
     uint32_t computeSubgroupSize = device->GetComputeSubgroupSize();
-    // If experimental full subgroups is required, pipeline is created with varying subgroup size
-    // enabled, and thus do not use explicit subgroup size control.
-    if (computeSubgroupSize != 0u && !IsFullSubgroupsRequired()) {
+    if (computeSubgroupSize != 0u) {
         DAWN_ASSERT(device->GetDeviceInfo().HasExt(DeviceExt::SubgroupSizeControl));
         subgroupSizeInfo.requiredSubgroupSize = computeSubgroupSize;
         stageExtChain.Add(
@@ -117,9 +105,11 @@ MaybeError ComputePipeline::InitializeImpl() {
             VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO_EXT);
     }
 
-    // Record cache key information now since the createInfo is not stored.
-    StreamIn(&mCacheKey, createInfo, layout,
-             stream::Iterable(moduleAndSpirv.spirv, moduleAndSpirv.wordCount));
+    if (buildCacheKey) {
+        // Record cache key information now since the createInfo is not stored.
+        StreamIn(&mCacheKey, createInfo, layout,
+                 stream::Iterable(moduleAndSpirv.spirv, moduleAndSpirv.wordCount));
+    }
 
     // Try to see if we have anything in the blob cache.
     platform::metrics::DawnHistogramTimer cacheTimer(GetDevice()->GetPlatform());
@@ -138,8 +128,7 @@ MaybeError ComputePipeline::InitializeImpl() {
             "CreateComputePipelines"));
         cacheTimer.RecordMicroseconds("Vulkan.CreateComputePipelines.CacheMiss");
     }
-    // TODO(dawn:549): Flush is currently in the same thread, but perhaps deferrable.
-    DAWN_TRY(cache->FlushIfNeeded());
+    DAWN_TRY(cache->DidCompilePipeline());
 
     SetLabelImpl();
 

@@ -59,12 +59,16 @@ inline std::ostream& operator<<(std::ostream& out, Case c) {
 
 static constexpr Case kValidCases[] = {
     {"derivative_uniformity", CoreDiagnosticRule::kDerivativeUniformity},
+    {"subgroup_uniformity", CoreDiagnosticRule::kSubgroupUniformity},
 };
 
 static constexpr Case kInvalidCases[] = {
     {"deriative_unccformity", CoreDiagnosticRule::kUndefined},
     {"dlivative_3iformiy", CoreDiagnosticRule::kUndefined},
     {"derivative_uniforVity", CoreDiagnosticRule::kUndefined},
+    {"s1bgroup_uniformity", CoreDiagnosticRule::kUndefined},
+    {"subgrouqq_unifJrmty", CoreDiagnosticRule::kUndefined},
+    {"sub77roup_ulliformity", CoreDiagnosticRule::kUndefined},
 };
 
 using CoreDiagnosticRuleParseTest = testing::TestWithParam<Case>;
@@ -108,13 +112,17 @@ inline std::ostream& operator<<(std::ostream& out, Case c) {
 }
 
 static constexpr Case kValidCases[] = {
+    {"subgroup_matrix_uniformity", ChromiumDiagnosticRule::kSubgroupMatrixUniformity},
     {"unreachable_code", ChromiumDiagnosticRule::kUnreachableCode},
 };
 
 static constexpr Case kInvalidCases[] = {
-    {"unreacha1le_code", ChromiumDiagnosticRule::kUndefined},
-    {"unreachableJcqde", ChromiumDiagnosticRule::kUndefined},
-    {"unreachable77llode", ChromiumDiagnosticRule::kUndefined},
+    {"subgroppHp_matriqq_uiformity", ChromiumDiagnosticRule::kUndefined},
+    {"subroup_matrcx_niformit", ChromiumDiagnosticRule::kUndefined},
+    {"subroupGmatrbx_uniformity", ChromiumDiagnosticRule::kUndefined},
+    {"vnriiachable_code", ChromiumDiagnosticRule::kUndefined},
+    {"unreac8ablWW_code", ChromiumDiagnosticRule::kUndefined},
+    {"unreMchablxxcode", ChromiumDiagnosticRule::kUndefined},
 };
 
 using ChromiumDiagnosticRuleParseTest = testing::TestWithParam<Case>;

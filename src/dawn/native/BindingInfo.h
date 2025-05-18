@@ -150,9 +150,14 @@ struct BindingInfo {
 
 BindingInfoType GetBindingInfoType(const BindingInfo& bindingInfo);
 
+// Match tint::BindingPoint, can convert to/from tint::BindingPoint using ToTint and FromTint.
 struct BindingSlot {
     BindGroupIndex group;
     BindingNumber binding;
+
+    constexpr bool operator==(const BindingSlot& rhs) const {
+        return group == rhs.group && binding == rhs.binding;
+    }
 };
 
 struct PerStageBindingCounts {
@@ -180,7 +185,9 @@ struct CombinedLimits;
 void IncrementBindingCounts(BindingCounts* bindingCounts,
                             const UnpackedPtr<BindGroupLayoutEntry>& entry);
 void AccumulateBindingCounts(BindingCounts* bindingCounts, const BindingCounts& rhs);
-MaybeError ValidateBindingCounts(const CombinedLimits& limits, const BindingCounts& bindingCounts);
+MaybeError ValidateBindingCounts(const CombinedLimits& limits,
+                                 const BindingCounts& bindingCounts,
+                                 const AdapterBase* adapter);
 
 // For buffer size validation
 using RequiredBufferSizes = PerBindGroup<std::vector<uint64_t>>;

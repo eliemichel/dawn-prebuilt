@@ -34,7 +34,6 @@
 #include "src/tint/lang/hlsl/builtin_fn.h"
 #include "src/tint/lang/hlsl/ir/builtin_call.h"
 #include "src/tint/lang/hlsl/ir/ternary.h"
-#include "src/tint/utils/result/result.h"
 
 namespace tint::hlsl::writer::raise {
 namespace {
@@ -43,6 +42,11 @@ using namespace tint::core::fluent_types;     // NOLINT
 using namespace tint::core::number_suffixes;  // NOLINT
 
 /// PIMPL state for the transform.
+///
+/// Each uniform buffer variable is rewritten so its store type is an array of vec4u
+/// elements.  Accesses to original store type contents are rewritten to pick out the
+/// right set of vec4u elements and then use bitcasts as needed to construct the originally
+/// loaded value.
 struct State {
     /// The IR module.
     core::ir::Module& ir;
@@ -71,7 +75,7 @@ struct State {
             // DecomposeStorageAccess maybe have converte the var pointers into ByteAddressBuffer
             // objects. Since they've been changed, then they're Storage buffers and we don't care
             // about them here.
-            auto* var_ty = var->Result(0)->Type()->As<core::type::Pointer>();
+            auto* var_ty = var->Result()->Type()->As<core::type::Pointer>();
             if (!var_ty) {
                 continue;
             }
@@ -85,7 +89,7 @@ struct State {
         }
 
         for (auto* var : var_worklist) {
-            auto* result = var->Result(0);
+            auto* result = var->Result();
 
             auto usage_worklist = result->UsagesSorted();
             auto* var_ty = result->Type()->As<core::type::Pointer>();
@@ -108,10 +112,10 @@ struct State {
                         // The `let` is, essentially, an alias for the `var` as it's assigned
                         // directly. Gather all the `let` usages into our worklist, and then replace
                         // the `let` with the `var` itself.
-                        for (auto& use : let->Result(0)->UsagesSorted()) {
+                        for (auto& use : let->Result()->UsagesSorted()) {
                             usage_worklist.Push(use);
                         }
-                        let->Result(0)->ReplaceAllUsesWith(result);
+                        let->Result()->ReplaceAllUsesWith(result);
                         let->Destroy();
                     },
                     TINT_ICE_ON_NO_MATCH);
@@ -124,6 +128,9 @@ struct State {
         }
     }
 
+    // OffsetData represents an unsigned integer expression.
+    // The value is the sum of a const part, held in `byte_offset`, and
+    // non-const parts in `byte_offset_expr`.
     struct OffsetData {
         uint32_t byte_offset = 0;
         Vector<core::ir::Value*, 4> byte_offset_expr{};
@@ -146,28 +153,33 @@ struct State {
             if (!val) {
                 val = expr;
             } else {
-                val = b.Add(ty.u32(), val, expr)->Result(0);
+                val = b.Add(ty.u32(), val, expr)->Result();
             }
         }
 
         return val;
     }
 
-    // Note, must be called inside a builder insert block (Append, InsertBefore, etc)
+    // Converts a byte offset to an index into a vec4u array.
+    // After the transform runs the store type of the uniform buffer variable is an
+    // array of vec4u.
+    // Note, this must be called inside a builder insert block (Append, InsertBefore, etc)
     core::ir::Value* OffsetValueToArrayIndex(core::ir::Value* val) {
         if (auto* cnst = val->As<core::ir::Constant>()) {
             auto v = cnst->Value()->ValueAs<uint32_t>();
             return b.Value(u32(v / 16u));
         }
-        return b.Divide(ty.u32(), val, 16_u)->Result(0);
+        return b.Divide(ty.u32(), val, 16_u)->Result();
     }
 
-    // From the byte_offset calculate the index of the vector inside the array we need to access.
+    // Calculates the index of the vec4u element containing the byte at (byte_idx % 16).
+    // Assumes the upper bits of byte_idx have already been used to access the correct
+    // vec4u array element in the underlying variable.
     core::ir::Value* CalculateVectorOffset(core::ir::Value* byte_idx) {
         if (auto* byte_cnst = byte_idx->As<core::ir::Constant>()) {
             return b.Value(u32((byte_cnst->Value()->ValueAs<uint32_t>() % 16u) / 4u));
         }
-        return b.Divide(ty.u32(), b.Modulo(ty.u32(), byte_idx, 16_u), 4_u)->Result(0);
+        return b.Divide(ty.u32(), b.Modulo(ty.u32(), byte_idx, 16_u), 4_u)->Result();
     }
 
     void Access(core::ir::Access* a,
@@ -191,7 +203,8 @@ struct State {
                 [&](core::ir::Value* val) {
                     b.InsertBefore(a, [&] {
                         offset.byte_offset_expr.Push(
-                            b.Multiply(ty.u32(), u32(size), b.Convert(ty.u32(), val))->Result(0));
+                            b.Multiply(ty.u32(), u32(size), b.InsertConvertIfNeeded(ty.u32(), val))
+                                ->Result());
                     });
                 });
         };
@@ -225,7 +238,7 @@ struct State {
                 TINT_ICE_ON_NO_MATCH);
         }
 
-        auto usages = a->Result(0)->UsagesSorted();
+        auto usages = a->Result()->UsagesSorted();
         while (!usages.IsEmpty()) {
             auto usage = usages.Pop();
             tint::Switch(
@@ -234,10 +247,10 @@ struct State {
                     // The `let` is essentially an alias to the `access`. So, add the `let`
                     // usages into the usage worklist, and replace the let with the access chain
                     // directly.
-                    for (auto& u : let->Result(0)->UsagesSorted()) {
+                    for (auto& u : let->Result()->UsagesSorted()) {
                         usages.Push(u);
                     }
-                    let->Result(0)->ReplaceAllUsesWith(a->Result(0));
+                    let->Result()->ReplaceAllUsesWith(a->Result());
                     let->Destroy();
                 },
                 [&](core::ir::Access* sub_access) {
@@ -247,11 +260,11 @@ struct State {
                     Access(sub_access, var, obj_ty, offset);
                 },
                 [&](core::ir::Load* ld) {
-                    a->Result(0)->RemoveUsage(usage);
+                    a->Result()->RemoveUsage(usage);
                     Load(ld, var, offset);
                 },
                 [&](core::ir::LoadVectorElement* lve) {
-                    a->Result(0)->RemoveUsage(usage);
+                    a->Result()->RemoveUsage(usage);
                     LoadVectorElement(lve, var, offset);
                 },
                 TINT_ICE_ON_NO_MATCH);
@@ -262,8 +275,8 @@ struct State {
     void Load(core::ir::Load* ld, core::ir::Var* var, OffsetData offset) {
         b.InsertBefore(ld, [&] {
             auto* byte_idx = OffsetToValue(offset);
-            auto* result = MakeLoad(ld, var, ld->Result(0)->Type(), byte_idx);
-            ld->Result(0)->ReplaceAllUsesWith(result->Result(0));
+            auto* result = MakeLoad(ld, var, ld->Result()->Type(), byte_idx);
+            ld->Result()->ReplaceAllUsesWith(result->Result());
         });
         ld->Destroy();
     }
@@ -274,18 +287,19 @@ struct State {
         b.InsertBefore(lve, [&] {
             // Add the byte count from the start of the vector to the requested element to the
             // current offset calculation
-            auto elem_byte_size = lve->Result(0)->Type()->DeepestElement()->Size();
+            auto elem_byte_size = lve->Result()->Type()->DeepestElement()->Size();
             if (auto* cnst = lve->Index()->As<core::ir::Constant>()) {
                 offset.byte_offset += (cnst->Value()->ValueAs<uint32_t>() * elem_byte_size);
             } else {
                 offset.byte_offset_expr.Push(
-                    b.Multiply(ty.u32(), b.Convert(ty.u32(), lve->Index()), u32(elem_byte_size))
-                        ->Result(0));
+                    b.Multiply(ty.u32(), b.InsertConvertIfNeeded(ty.u32(), lve->Index()),
+                               u32(elem_byte_size))
+                        ->Result());
             }
 
             auto* byte_idx = OffsetToValue(offset);
-            auto* result = MakeLoad(lve, var, lve->Result(0)->Type(), byte_idx);
-            lve->Result(0)->ReplaceAllUsesWith(result->Result(0));
+            auto* result = MakeLoad(lve, var, lve->Result()->Type(), byte_idx);
+            lve->Result()->ReplaceAllUsesWith(result->Result());
         });
         lve->Destroy();
     }
@@ -346,7 +360,7 @@ struct State {
             auto* true_ = b.Value(0_u);
             auto* cond = b.Equal(ty.bool_(), b.Modulo(ty.u32(), byte_idx, 4_u), 0_u);
 
-            Vector<core::ir::Value*, 3> args{false_, true_, cond->Result(0)};
+            Vector<core::ir::Value*, 3> args{false_, true_, cond->Result()};
             auto* shift_amt =
                 b.ir.CreateInstruction<hlsl::ir::Ternary>(b.InstructionResult(ty.u32()), args);
             b.Append(shift_amt);
@@ -384,6 +398,7 @@ struct State {
             return MakeVectorLoadF16(access, result_ty, byte_idx);
         }
 
+        TINT_ASSERT(result_ty->DeepestElement()->Size() == 4);
         core::ir::Instruction* load = nullptr;
         if (result_ty->Width() == 4) {
             load = b.Load(access);
@@ -405,8 +420,8 @@ struct State {
                 auto* sw_rhs = b.Swizzle(ty.vec2<u32>(), ubo, {0, 1});
                 auto* cond = b.Equal(ty.bool_(), vec_idx, 2_u);
 
-                Vector<core::ir::Value*, 3> args{sw_rhs->Result(0), sw_lhs->Result(0),
-                                                 cond->Result(0)};
+                Vector<core::ir::Value*, 3> args{sw_rhs->Result(), sw_lhs->Result(),
+                                                 cond->Result()};
 
                 load = b.ir.CreateInstruction<hlsl::ir::Ternary>(
                     b.InstructionResult(ty.vec2<u32>()), args);
@@ -418,45 +433,61 @@ struct State {
         return b.Bitcast(result_ty, load);
     }
 
+    // Returns the instruction for getting a vector-of-f16 value of type `result_ty`
+    // out of the pointer-to-vec4u value `access`. Get the components starting
+    // at byte offset (byte_idx % 16).
+    // A `vec4` or `vec3` of `f16` has 8-byte alignment, while a `vec2` of `f16` has 4-byte
+    // alignment. So, this means we'll have memory like:
+    //
+    // Byte:     |  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 |  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 |
+    // Scalar Index:       0         |         1         |         2         |         3         |
+    // vec4<u32>:|         x         |         y         |         z         |         w         |
+    // vec4<f16>:|   x     |    y    |    z    |    w    |   x     |    y    |    z    |    w    |
+    // vec3<f16>:|   x     |    y    |    z    |         |   x     |    y    |    z    |         |
+    // vec2<f16>:|   x     |    y    |    x    |    y    |   x     |    y    |    x    |    y    |
     core::ir::Instruction* MakeVectorLoadF16(core::ir::Access* access,
                                              const core::type::Vector* result_ty,
                                              core::ir::Value* byte_idx) {
-        core::ir::Instruction* load = nullptr;
-        // Vec4 ends up being the same as a bitcast of vec2<u32> to a vec4<f16>
-        if (result_ty->Width() == 4) {
-            return b.Bitcast(result_ty, b.Load(access));
-        }
-
-        // A vec3 will be stored as a vec4, so we can bitcast as if we're a vec4 and swizzle out the
-        // last element
-        if (result_ty->Width() == 3) {
-            auto* bc = b.Bitcast(ty.vec4(result_ty->Type()), b.Load(access));
-            return b.Swizzle(result_ty, bc, {0, 1, 2});
-        }
-
-        // Vec2 ends up being the same as a bitcast u32 to vec2<f16>
-        if (result_ty->Width() == 2) {
-            auto* vec_idx = CalculateVectorOffset(byte_idx);
+        // Vec4 ends up being the same as a bitcast of vec2<u32> to a vec4<f16>.
+        // A vec3 will be stored as a vec4, so we can bitcast as if we're a vec4
+        // and swizzle out the last element.
+        if (result_ty->Width() == 3 || result_ty->Width() == 4) {
+            core::ir::Instruction* load = nullptr;
+            auto* vec_idx = CalculateVectorOffset(byte_idx);  // 0 or 2
             if (auto* cnst = vec_idx->As<core::ir::Constant>()) {
                 if (cnst->Value()->ValueAs<uint32_t>() == 2u) {
-                    load = b.Swizzle(ty.u32(), b.Load(access), {2});
+                    load = b.Swizzle(ty.vec2<u32>(), b.Load(access), {2, 3});
                 } else {
-                    load = b.Swizzle(ty.u32(), b.Load(access), {0});
+                    load = b.Swizzle(ty.vec2<u32>(), b.Load(access), {0, 1});
                 }
             } else {
                 auto* ubo = b.Load(access);
                 // if vec_idx == 2 -> zw
-                auto* sw_lhs = b.Swizzle(ty.u32(), ubo, {2});
+                auto* sw_lhs = b.Swizzle(ty.vec2<u32>(), ubo, {2, 3});
                 // else -> xy
-                auto* sw_rhs = b.Swizzle(ty.u32(), ubo, {0});
+                auto* sw_rhs = b.Swizzle(ty.vec2<u32>(), ubo, {0, 1});
                 auto* cond = b.Equal(ty.bool_(), vec_idx, 2_u);
-
-                Vector<core::ir::Value*, 3> args{sw_rhs->Result(0), sw_lhs->Result(0),
-                                                 cond->Result(0)};
-
-                load =
-                    b.ir.CreateInstruction<hlsl::ir::Ternary>(b.InstructionResult(ty.u32()), args);
+                auto args = Vector{sw_rhs->Result(), sw_lhs->Result(), cond->Result()};
+                load = b.ir.CreateInstruction<hlsl::ir::Ternary>(
+                    b.InstructionResult(ty.vec2<u32>()), std::move(args));
                 b.Append(load);
+            }
+            if (result_ty->Width() == 3) {
+                auto* bc = b.Bitcast(ty.vec4(result_ty->Type()), load);
+                return b.Swizzle(result_ty, bc, {0, 1, 2});
+            }
+            return b.Bitcast(result_ty, load);
+        }
+
+        // Vec2 ends up being the same as a bitcast u32 to vec2<f16>
+        if (result_ty->Width() == 2) {
+            core::ir::Instruction* load = nullptr;
+            auto* vec_idx = CalculateVectorOffset(byte_idx);  // 0, 1, 2, or 3
+            if (auto* cnst = vec_idx->As<core::ir::Constant>()) {
+                const auto vec_idx_val = cnst->Value()->ValueAs<uint32_t>();
+                load = b.Swizzle(ty.u32(), b.Load(access), {vec_idx_val});
+            } else {
+                load = b.Access(ty.u32(), b.Load(access), vec_idx);
             }
             return b.Bitcast(result_ty, load);
         }
@@ -494,7 +525,7 @@ struct State {
 
                     OffsetData od{stride, {start_byte_offset}};
                     auto* byte_idx = OffsetToValue(od);
-                    values.Push(MakeLoad(inst, var, mat->ColumnType(), byte_idx)->Result(0));
+                    values.Push(MakeLoad(inst, var, mat->ColumnType(), byte_idx)->Result());
                 }
                 b.Return(fn, b.Construct(mat, values));
             });
@@ -534,7 +565,7 @@ struct State {
                 TINT_ASSERT(count);
 
                 b.LoopRange(ty, 0_u, u32(count->value), 1_u, [&](core::ir::Value* idx) {
-                    auto* stride = b.Multiply<u32>(idx, u32(arr->Stride()))->Result(0);
+                    auto* stride = b.Multiply<u32>(idx, u32(arr->Stride()))->Result();
                     OffsetData od{0, {start_byte_offset, stride}};
                     auto* byte_idx = OffsetToValue(od);
                     auto* access = b.Access(ty.ptr<function>(arr->ElemType()), result_arr, idx);
@@ -572,7 +603,7 @@ struct State {
 
                     OffsetData od{stride, {start_byte_offset}};
                     auto* byte_idx = OffsetToValue(od);
-                    values.Push(MakeLoad(inst, var, mem->Type(), byte_idx)->Result(0));
+                    values.Push(MakeLoad(inst, var, mem->Type(), byte_idx)->Result());
                 }
 
                 b.Return(fn, b.Construct(s, values));
@@ -586,7 +617,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> DecomposeUniformAccess(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "DecomposeUniformAccess transform",
+    auto result = ValidateAndDumpIfNeeded(ir, "hlsl.DecomposeUniformAccess",
                                           core::ir::Capabilities{
                                               core::ir::Capability::kAllowClipDistancesOnF32,
                                           });

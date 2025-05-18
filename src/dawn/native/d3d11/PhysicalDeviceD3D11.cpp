@@ -39,11 +39,12 @@
 #include "dawn/native/d3d11/DeviceD3D11.h"
 #include "dawn/native/d3d11/PlatformFunctionsD3D11.h"
 #include "dawn/native/d3d11/UtilsD3D11.h"
+#include "dawn/platform/DawnPlatform.h"
 
 namespace dawn::native::d3d11 {
 
 PhysicalDevice::PhysicalDevice(Backend* backend,
-                               ComPtr<IDXGIAdapter4> hardwareAdapter,
+                               ComPtr<IDXGIAdapter3> hardwareAdapter,
                                ComPtr<ID3D11Device> d3d11Device)
     : Base(backend, std::move(hardwareAdapter), wgpu::BackendType::D3D11),
       mIsSharedD3D11Device(!!d3d11Device),
@@ -55,16 +56,20 @@ bool PhysicalDevice::SupportsExternalImages() const {
     return true;
 }
 
-bool PhysicalDevice::SupportsFeatureLevel(FeatureLevel featureLevel) const {
+bool PhysicalDevice::SupportsFeatureLevel(wgpu::FeatureLevel featureLevel,
+                                          InstanceBase* instance) const {
     // TODO(dawn:1820): compare D3D11 feature levels with Dawn feature levels.
     switch (featureLevel) {
-        case FeatureLevel::Core: {
+        case wgpu::FeatureLevel::Core: {
             return mFeatureLevel >= D3D_FEATURE_LEVEL_11_1;
         }
-        case FeatureLevel::Compatibility: {
-            return true;
+        case wgpu::FeatureLevel::Compatibility: {
+            return mFeatureLevel >= D3D_FEATURE_LEVEL_11_0;
         }
+        case wgpu::FeatureLevel::Undefined:
+            break;
     }
+    DAWN_UNREACHABLE();
 }
 
 const DeviceInfo& PhysicalDevice::GetDeviceInfo() const {
@@ -171,9 +176,8 @@ void PhysicalDevice::InitializeSupportedFeaturesImpl() {
     }
 
     EnableFeature(Feature::SharedTextureMemoryD3D11Texture2D);
-    if (mDeviceInfo.supportsSharedResourceCapabilityTier2) {
-        EnableFeature(Feature::SharedTextureMemoryDXGISharedHandle);
-    }
+    EnableFeature(Feature::SharedTextureMemoryDXGISharedHandle);
+
     if (mDeviceInfo.supportsMonitoredFence || mDeviceInfo.supportsNonMonitoredFence) {
         EnableFeature(Feature::SharedFenceDXGISharedHandle);
     }
@@ -184,10 +188,13 @@ void PhysicalDevice::InitializeSupportedFeaturesImpl() {
     if (formatSupport & D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW) {
         EnableFeature(Feature::BGRA8UnormStorage);
     }
+
+    EnableFeature(Feature::DawnTexelCopyBufferRowAlignment);
+    EnableFeature(Feature::FlexibleTextureViews);
 }
 
 MaybeError PhysicalDevice::InitializeSupportedLimitsImpl(CombinedLimits* limits) {
-    GetDefaultLimitsForSupportedFeatureLevel(&limits->v1);
+    GetDefaultLimitsForSupportedFeatureLevel(limits);
 
     // // https://docs.microsoft.com/en-us/windows/win32/direct3d12/hardware-feature-levels
 
@@ -202,11 +209,24 @@ MaybeError PhysicalDevice::InitializeSupportedLimitsImpl(CombinedLimits* limits)
     // Both SV_VertexID and SV_InstanceID will consume vertex input slots.
     limits->v1.maxVertexAttributes = D3D11_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT - 2;
 
-    uint32_t maxUAVsAllStages = mFeatureLevel == D3D_FEATURE_LEVEL_11_1
-                                    ? D3D11_1_UAV_SLOT_COUNT
-                                    : D3D11_PS_CS_UAV_REGISTER_COUNT;
+    uint32_t maxUAVsAllStages;
+    uint32_t maxUAVsPerStage;
+
+    if (mFeatureLevel >= D3D_FEATURE_LEVEL_11_1) {
+        // In D3D 11.1, max UAV slots are shared between fragment & vertex stage so divide it by 2
+        // to get per stage limit.
+        maxUAVsAllStages = D3D11_1_UAV_SLOT_COUNT;
+        maxUAVsPerStage = maxUAVsAllStages / 2;
+    } else {
+        // We don't support feature level < 11.0
+        DAWN_INVALID_IF(mFeatureLevel < D3D_FEATURE_LEVEL_11_0, "Unsupported D3D feature level %u",
+                        mFeatureLevel);
+        // In D3D 11.0, only fragment and compute have UAVs. Vertex doesn't have UAV so we don't
+        // need to divide the slot count between fragment & vertex.
+        maxUAVsAllStages = D3D11_PS_CS_UAV_REGISTER_COUNT;
+        maxUAVsPerStage = maxUAVsAllStages;
+    }
     mUAVSlotCount = maxUAVsAllStages;
-    uint32_t maxUAVsPerStage = maxUAVsAllStages / 2;
 
     // Reserve one slot for builtin constants.
     constexpr uint32_t kReservedCBVSlots = 1;
@@ -216,6 +236,15 @@ MaybeError PhysicalDevice::InitializeSupportedLimitsImpl(CombinedLimits* limits)
     // Allocate half of the UAVs to storage buffers, and half to storage textures.
     limits->v1.maxStorageTexturesPerShaderStage = maxUAVsPerStage / 2;
     limits->v1.maxStorageBuffersPerShaderStage = maxUAVsPerStage / 2;
+    limits->v1.maxStorageTexturesInFragmentStage = limits->v1.maxStorageTexturesPerShaderStage;
+    limits->v1.maxStorageBuffersInFragmentStage = limits->v1.maxStorageBuffersPerShaderStage;
+    // If the device only has feature level 11.0, technically, vertex stage doesn't have any UAV
+    // slot (writable storage buffers). However, since Dawn spec requires that storage buffers must
+    // be readonly in VS, it's safe to advertise that we have storage buffers in VS. Readonly
+    // storage buffers will use SRV slots which are available in all stages.
+    // The same for read-only storage textures in VS.
+    limits->v1.maxStorageTexturesInVertexStage = limits->v1.maxStorageTexturesPerShaderStage;
+    limits->v1.maxStorageBuffersInVertexStage = limits->v1.maxStorageBuffersPerShaderStage;
     limits->v1.maxSampledTexturesPerShaderStage = D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT;
     limits->v1.maxSamplersPerShaderStage = D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT;
     limits->v1.maxColorAttachments = D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT;
@@ -261,8 +290,9 @@ MaybeError PhysicalDevice::InitializeSupportedLimitsImpl(CombinedLimits* limits)
     // 1 for SV_Position and 1 for (SV_IsFrontFace OR SV_SampleIndex).
     // See the discussions in https://github.com/gpuweb/gpuweb/issues/1962 for more details.
     limits->v1.maxInterStageShaderVariables = D3D11_PS_INPUT_REGISTER_COUNT - 2;
-    limits->v1.maxInterStageShaderComponents =
-        limits->v1.maxInterStageShaderVariables * D3D11_PS_INPUT_REGISTER_COMPONENTS;
+
+    // The BlitTextureToBuffer helper requires the alignment to be 4.
+    limits->texelCopyBufferRowAlignmentLimits.minTexelCopyBufferRowAlignment = 4;
 
     return {};
 }
@@ -284,8 +314,13 @@ void PhysicalDevice::SetupBackendDeviceToggles(dawn::platform::Platform* platfor
     // D3D11 can only clear RTV with float values.
     deviceToggles->Default(Toggle::ApplyClearBigIntegerColorValueWithDraw, true);
     deviceToggles->Default(Toggle::UseBlitForBufferToStencilTextureCopy, true);
-    deviceToggles->Default(Toggle::D3D11UseUnmonitoredFence, !mDeviceInfo.supportsMonitoredFence);
+    if (!mDeviceInfo.supportsMonitoredFence) {
+        deviceToggles->Default(Toggle::D3D11UseUnmonitoredFence,
+                               mDeviceInfo.supportsNonMonitoredFence);
+        deviceToggles->ForceSet(Toggle::D3D11DisableFence, !mDeviceInfo.supportsNonMonitoredFence);
+    }
     deviceToggles->Default(Toggle::UseBlitForT2B, true);
+    deviceToggles->Default(Toggle::UseBlitForB2T, true);
 
     auto deviceId = GetDeviceId();
     auto vendorId = GetVendorId();
@@ -299,6 +334,10 @@ void PhysicalDevice::SetupBackendDeviceToggles(dawn::platform::Platform* platfor
     if (gpu_info::IsIntelGen11OrOlder(vendorId, deviceId)) {
         deviceToggles->Default(Toggle::ClearColorWithDraw, true);
     }
+
+    // Use the Tint IR backend by default if the corresponding platform feature is enabled.
+    deviceToggles->Default(Toggle::UseTintIR,
+                           platform->IsFeatureEnabled(platform::Features::kWebGPUUseTintIR));
 }
 
 ResultOrError<Ref<DeviceBase>> PhysicalDevice::CreateDeviceImpl(

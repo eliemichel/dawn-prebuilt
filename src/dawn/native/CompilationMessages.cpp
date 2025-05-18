@@ -83,11 +83,7 @@ ResultOrError<uint64_t> CountUTF16CodeUnitsFromUTF8String(const std::string_view
     return numberOfUTF16CodeUnits;
 }
 
-OwnedCompilationMessages::OwnedCompilationMessages() {
-    mCompilationInfo.nextInChain = 0;
-    mCompilationInfo.messageCount = 0;
-    mCompilationInfo.messages = nullptr;
-}
+OwnedCompilationMessages::OwnedCompilationMessages() = default;
 
 OwnedCompilationMessages::~OwnedCompilationMessages() = default;
 
@@ -96,8 +92,9 @@ void OwnedCompilationMessages::AddUnanchoredMessage(std::string_view message,
     CompilationMessage m = {};
     m.message = message;
     m.type = type;
-
     AddMessage(m);
+
+    mUtf16.push_back({});
 }
 
 void OwnedCompilationMessages::AddMessageForTesting(std::string_view message,
@@ -113,11 +110,13 @@ void OwnedCompilationMessages::AddMessageForTesting(std::string_view message,
     m.linePos = linePos;
     m.offset = offset;
     m.length = length;
-    m.utf16LinePos = linePos;
-    m.utf16Offset = offset;
-    m.utf16Length = length;
-
     AddMessage(m);
+
+    DawnCompilationMessageUtf16 utf16 = {};
+    utf16.linePos = linePos;
+    utf16.offset = offset;
+    utf16.length = length;
+    mUtf16.push_back(utf16);
 }
 
 MaybeError OwnedCompilationMessages::AddMessage(const tint::diag::Diagnostic& diagnostic) {
@@ -183,17 +182,20 @@ MaybeError OwnedCompilationMessages::AddMessage(const tint::diag::Diagnostic& di
     m.linePos = linePosInBytes;
     m.offset = offsetInBytes;
     m.length = lengthInBytes;
-    m.utf16LinePos = linePosInUTF16;
-    m.utf16Offset = offsetInUTF16;
-    m.utf16Length = lengthInUTF16;
-
     AddMessage(m);
+
+    DawnCompilationMessageUtf16 utf16 = {};
+    utf16.linePos = linePosInUTF16;
+    utf16.offset = offsetInUTF16;
+    utf16.length = lengthInUTF16;
+    mUtf16.push_back(utf16);
+
     return {};
 }
 
 void OwnedCompilationMessages::AddMessage(const CompilationMessage& message) {
     // Cannot add messages after GetCompilationInfo has been called.
-    DAWN_ASSERT(mCompilationInfo.messages == nullptr);
+    DAWN_ASSERT(!mCompilationInfo->has_value());
 
     DAWN_ASSERT(message.nextInChain == nullptr);
 
@@ -208,7 +210,7 @@ void OwnedCompilationMessages::AddMessage(const CompilationMessage& message) {
 
 MaybeError OwnedCompilationMessages::AddMessages(const tint::diag::List& diagnostics) {
     // Cannot add messages after GetCompilationInfo has been called.
-    DAWN_ASSERT(mCompilationInfo.messages == nullptr);
+    DAWN_ASSERT(!mCompilationInfo->has_value());
 
     for (const auto& diag : diagnostics) {
         DAWN_TRY(AddMessage(diag));
@@ -221,17 +223,30 @@ MaybeError OwnedCompilationMessages::AddMessages(const tint::diag::List& diagnos
 
 void OwnedCompilationMessages::ClearMessages() {
     // Cannot clear messages after GetCompilationInfo has been called.
-    DAWN_ASSERT(mCompilationInfo.messages == nullptr);
+    DAWN_ASSERT(!mCompilationInfo->has_value());
 
     mMessageStrings.clear();
     mMessages.clear();
+    mUtf16.clear();
 }
 
 const CompilationInfo* OwnedCompilationMessages::GetCompilationInfo() {
-    mCompilationInfo.messageCount = mMessages.size();
-    mCompilationInfo.messages = mMessages.data();
+    return mCompilationInfo.Use([&](auto info) {
+        if (info->has_value()) {
+            return &info->value();
+        }
 
-    return &mCompilationInfo;
+        // Append the UTF16 extension now.
+        DAWN_ASSERT(mMessages.size() == mUtf16.size());
+        for (size_t i = 0; i < mMessages.size(); i++) {
+            mMessages[i].nextInChain = &mUtf16[i];
+        }
+
+        (*info).emplace();
+        (*info)->messageCount = mMessages.size();
+        (*info)->messages = mMessages.data();
+        return &info->value();
+    });
 }
 
 const std::vector<std::string>& OwnedCompilationMessages::GetFormattedTintMessages() const {

@@ -35,7 +35,7 @@ set(sample_util_depends
     dawn::dawn_system_utils
     dawn::dawn_wgpu_utils
 )
-if (NOT ${DAWN_ENABLE_EMSCRIPTEN})
+if (NOT EMSCRIPTEN)
     list(APPEND sample_util_depends
         dawn::dawn_test_utils
         dawn::dawn_proc
@@ -70,14 +70,18 @@ function(Sample)
     )
 
     # Skip targets that shouldn't be built with Emscripten.
-    if (NOT arg_ENABLE_EMSCRIPTEN AND ${DAWN_ENABLE_EMSCRIPTEN})
+    if (EMSCRIPTEN AND NOT arg_ENABLE_EMSCRIPTEN)
         return()
     endif ()
 
     add_executable(${arg_NAME} ${arg_SOURCES})
-    if (${DAWN_ENABLE_EMSCRIPTEN})
+    if (EMSCRIPTEN)
         set_target_properties(${arg_NAME} PROPERTIES
             SUFFIX ".html")
+        target_link_options(${arg_NAME} PUBLIC
+            # We need JSPI for Future implementation.
+            "-sJSPI"
+        )
     endif()
     target_link_libraries(${arg_NAME} PUBLIC dawn::dawn_sample_utils)
     common_compile_options(${arg_NAME})

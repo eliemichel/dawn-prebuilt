@@ -40,7 +40,7 @@
 #include <cstdint>
 #include <variant>
 
-#include "src/tint/utils/traits/traits.h"
+#include "src/tint/utils/rtti/traits.h"
 
 namespace tint::wgsl {
 
@@ -48,6 +48,7 @@ namespace tint::wgsl {
 enum class CoreDiagnosticRule : uint8_t {
     kUndefined,
     kDerivativeUniformity,
+    kSubgroupUniformity,
 };
 
 /// @param value the enum value
@@ -69,11 +70,13 @@ CoreDiagnosticRule ParseCoreDiagnosticRule(std::string_view str);
 
 constexpr std::string_view kCoreDiagnosticRuleStrings[] = {
     "derivative_uniformity",
+    "subgroup_uniformity",
 };
 
 /// Chromium-specific diagnostic rules.
 enum class ChromiumDiagnosticRule : uint8_t {
     kUndefined,
+    kSubgroupMatrixUniformity,
     kUnreachableCode,
 };
 
@@ -96,6 +99,7 @@ auto& operator<<(STREAM& out, ChromiumDiagnosticRule value) {
 ChromiumDiagnosticRule ParseChromiumDiagnosticRule(std::string_view str);
 
 constexpr std::string_view kChromiumDiagnosticRuleStrings[] = {
+    "subgroup_matrix_uniformity",
     "unreachable_code",
 };
 

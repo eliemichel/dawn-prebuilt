@@ -295,7 +295,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, BitcastFromVec2F16) {
 %foo = @fragment func():void {
   $B1: {
     %2:vec2<f16> = construct 1.0h, 2.0h
-    %a:ptr<function, vec2<f16>, read_write> = var, %2
+    %a:ptr<function, vec2<f16>, read_write> = var %2
     %4:vec2<f16> = load %a
     %5:i32 = bitcast %4
     %b:i32 = let %5
@@ -309,7 +309,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, BitcastFromVec2F16) {
 %foo = @fragment func():void {
   $B1: {
     %2:vec2<f16> = construct 1.0h, 2.0h
-    %a:ptr<function, vec2<f16>, read_write> = var, %2
+    %a:ptr<function, vec2<f16>, read_write> = var %2
     %4:vec2<f16> = load %a
     %5:i32 = call %tint_bitcast_from_f16, %4
     %b:i32 = let %5
@@ -349,7 +349,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, BitcastToVec4F16) {
 %foo = @fragment func():void {
   $B1: {
     %2:vec2<i32> = construct 1i, 2i
-    %a:ptr<function, vec2<i32>, read_write> = var, %2
+    %a:ptr<function, vec2<i32>, read_write> = var %2
     %4:vec2<i32> = load %a
     %5:vec4<f16> = bitcast %4
     %b:vec4<f16> = let %5
@@ -363,7 +363,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, BitcastToVec4F16) {
 %foo = @fragment func():void {
   $B1: {
     %2:vec2<i32> = construct 1i, 2i
-    %a:ptr<function, vec2<i32>, read_write> = var, %2
+    %a:ptr<function, vec2<i32>, read_write> = var %2
     %4:vec2<i32> = load %a
     %5:vec4<f16> = call %tint_bitcast_to_f16, %4
     %b:vec4<f16> = let %5
@@ -457,8 +457,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, SignVec) {
 %foo = @fragment func():void {
   $B1: {
     %2:vec3<i32> = hlsl.sign vec3<i32>(1i, 2i, 3i)
-    %3:vec3<i32> = convert %2
-    %a:vec3<i32> = let %3
+    %a:vec3<i32> = let %2
     ret
   }
 }
@@ -469,8 +468,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, SignVec) {
 }
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureNumLevels) {
-    auto* t = b.FunctionParam(
-        "t", ty.Get<core::type::SampledTexture>(core::type::TextureDimension::k1d, ty.f32()));
+    auto* t = b.FunctionParam("t", ty.sampled_texture(core::type::TextureDimension::k1d, ty.f32()));
     auto* func = b.Function("foo", ty.u32());
     func->SetParams({t});
     b.Append(func->Block(), [&] {
@@ -491,12 +489,13 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureNumLevels) {
     auto* expect = R"(
 %foo = func(%t:texture_1d<f32>):u32 {
   $B1: {
-    %3:ptr<function, vec2<u32>, read_write> = var
+    %3:ptr<function, vec2<u32>, read_write> = var undef
     %4:ptr<function, u32, read_write> = access %3, 0u
     %5:ptr<function, u32, read_write> = access %3, 1u
     %6:void = %t.GetDimensions 0u, %4, %5
-    %7:u32 = swizzle %3, y
-    ret %7
+    %7:vec2<u32> = load %3
+    %8:u32 = swizzle %7, y
+    ret %8
   }
 }
 )";
@@ -507,8 +506,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureNumLevels) {
 }
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureNumLayers) {
-    auto* t = b.FunctionParam("t", ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::kCubeArray, ty.f32()));
+    auto* t = b.FunctionParam(
+        "t", ty.sampled_texture(core::type::TextureDimension::kCubeArray, ty.f32()));
     auto* func = b.Function("foo", ty.u32());
     func->SetParams({t});
     b.Append(func->Block(), [&] {
@@ -529,13 +528,14 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureNumLayers) {
     auto* expect = R"(
 %foo = func(%t:texture_cube_array<f32>):u32 {
   $B1: {
-    %3:ptr<function, vec3<u32>, read_write> = var
+    %3:ptr<function, vec3<u32>, read_write> = var undef
     %4:ptr<function, u32, read_write> = access %3, 0u
     %5:ptr<function, u32, read_write> = access %3, 1u
     %6:ptr<function, u32, read_write> = access %3, 2u
     %7:void = %t.GetDimensions %4, %5, %6
-    %8:u32 = swizzle %3, z
-    ret %8
+    %8:vec3<u32> = load %3
+    %9:u32 = swizzle %8, z
+    ret %9
   }
 }
 )";
@@ -547,8 +547,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureNumLayers) {
 }
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureNumSamples) {
-    auto* t = b.FunctionParam(
-        "t", ty.Get<core::type::MultisampledTexture>(core::type::TextureDimension::k2d, ty.f32()));
+    auto* t =
+        b.FunctionParam("t", ty.multisampled_texture(core::type::TextureDimension::k2d, ty.f32()));
     auto* func = b.Function("foo", ty.u32());
     func->SetParams({t});
     b.Append(func->Block(), [&] {
@@ -569,13 +569,14 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureNumSamples) {
     auto* expect = R"(
 %foo = func(%t:texture_multisampled_2d<f32>):u32 {
   $B1: {
-    %3:ptr<function, vec3<u32>, read_write> = var
+    %3:ptr<function, vec3<u32>, read_write> = var undef
     %4:ptr<function, u32, read_write> = access %3, 0u
     %5:ptr<function, u32, read_write> = access %3, 1u
     %6:ptr<function, u32, read_write> = access %3, 2u
     %7:void = %t.GetDimensions %4, %5, %6
-    %8:u32 = swizzle %3, z
-    ret %8
+    %8:vec3<u32> = load %3
+    %9:u32 = swizzle %8, z
+    ret %9
   }
 }
 )";
@@ -587,8 +588,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureNumSamples) {
 }
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureDimensions_1d_WithoutLod) {
-    auto* t = b.FunctionParam(
-        "t", ty.Get<core::type::SampledTexture>(core::type::TextureDimension::k1d, ty.f32()));
+    auto* t = b.FunctionParam("t", ty.sampled_texture(core::type::TextureDimension::k1d, ty.f32()));
     auto* func = b.Function("foo", ty.u32());
     func->SetParams({t});
     b.Append(func->Block(), [&] {
@@ -609,7 +609,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureDimensions_1d_WithoutLod) {
     auto* expect = R"(
 %foo = func(%t:texture_1d<f32>):u32 {
   $B1: {
-    %3:ptr<function, u32, read_write> = var
+    %3:ptr<function, u32, read_write> = var undef
     %4:void = %t.GetDimensions %3
     %5:u32 = load %3
     ret %5
@@ -624,8 +624,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureDimensions_1d_WithoutLod) {
 }
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureDimensions_1d_WithI32Lod) {
-    auto* t = b.FunctionParam(
-        "t", ty.Get<core::type::SampledTexture>(core::type::TextureDimension::k1d, ty.f32()));
+    auto* t = b.FunctionParam("t", ty.sampled_texture(core::type::TextureDimension::k1d, ty.f32()));
     auto* func = b.Function("foo", ty.u32());
     func->SetParams({t});
     b.Append(func->Block(), [&] {
@@ -647,7 +646,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureDimensions_1d_WithI32Lod) {
 %foo = func(%t:texture_1d<f32>):u32 {
   $B1: {
     %3:u32 = convert 3i
-    %4:ptr<function, vec2<u32>, read_write> = var
+    %4:ptr<function, vec2<u32>, read_write> = var undef
     %5:ptr<function, u32, read_write> = access %4, 0u
     %6:ptr<function, u32, read_write> = access %4, 1u
     %7:void = %t.GetDimensions %3, %5, %6
@@ -665,8 +664,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureDimensions_1d_WithI32Lod) {
 }
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureDimensions_1d_WithU32Lod) {
-    auto* t = b.FunctionParam(
-        "t", ty.Get<core::type::SampledTexture>(core::type::TextureDimension::k1d, ty.f32()));
+    auto* t = b.FunctionParam("t", ty.sampled_texture(core::type::TextureDimension::k1d, ty.f32()));
     auto* func = b.Function("foo", ty.u32());
     func->SetParams({t});
     b.Append(func->Block(), [&] {
@@ -687,14 +685,13 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureDimensions_1d_WithU32Lod) {
     auto* expect = R"(
 %foo = func(%t:texture_1d<f32>):u32 {
   $B1: {
-    %3:u32 = convert 3u
-    %4:ptr<function, vec2<u32>, read_write> = var
-    %5:ptr<function, u32, read_write> = access %4, 0u
-    %6:ptr<function, u32, read_write> = access %4, 1u
-    %7:void = %t.GetDimensions %3, %5, %6
-    %8:vec2<u32> = load %4
-    %9:u32 = swizzle %8, x
-    ret %9
+    %3:ptr<function, vec2<u32>, read_write> = var undef
+    %4:ptr<function, u32, read_write> = access %3, 0u
+    %5:ptr<function, u32, read_write> = access %3, 1u
+    %6:void = %t.GetDimensions 3u, %4, %5
+    %7:vec2<u32> = load %3
+    %8:u32 = swizzle %7, x
+    ret %8
   }
 }
 )";
@@ -706,8 +703,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureDimensions_1d_WithU32Lod) {
 }
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureDimensions_2d_WithoutLod) {
-    auto* t = b.FunctionParam(
-        "t", ty.Get<core::type::SampledTexture>(core::type::TextureDimension::k2d, ty.f32()));
+    auto* t = b.FunctionParam("t", ty.sampled_texture(core::type::TextureDimension::k2d, ty.f32()));
     auto* func = b.Function("foo", ty.vec2<u32>());
     func->SetParams({t});
     b.Append(func->Block(), [&] {
@@ -728,7 +724,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureDimensions_2d_WithoutLod) {
     auto* expect = R"(
 %foo = func(%t:texture_2d<f32>):vec2<u32> {
   $B1: {
-    %3:ptr<function, vec2<u32>, read_write> = var
+    %3:ptr<function, vec2<u32>, read_write> = var undef
     %4:ptr<function, u32, read_write> = access %3, 0u
     %5:ptr<function, u32, read_write> = access %3, 1u
     %6:void = %t.GetDimensions %4, %5
@@ -745,8 +741,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureDimensions_2d_WithoutLod) {
 }
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureDimensions_2d_WithI32Lod) {
-    auto* t = b.FunctionParam(
-        "t", ty.Get<core::type::SampledTexture>(core::type::TextureDimension::k2d, ty.f32()));
+    auto* t = b.FunctionParam("t", ty.sampled_texture(core::type::TextureDimension::k2d, ty.f32()));
     auto* func = b.Function("foo", ty.vec2<u32>());
     func->SetParams({t});
     b.Append(func->Block(), [&] {
@@ -768,7 +763,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureDimensions_2d_WithI32Lod) {
 %foo = func(%t:texture_2d<f32>):vec2<u32> {
   $B1: {
     %3:u32 = convert 3i
-    %4:ptr<function, vec3<u32>, read_write> = var
+    %4:ptr<function, vec3<u32>, read_write> = var undef
     %5:ptr<function, u32, read_write> = access %4, 0u
     %6:ptr<function, u32, read_write> = access %4, 1u
     %7:ptr<function, u32, read_write> = access %4, 2u
@@ -787,8 +782,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureDimensions_2d_WithI32Lod) {
 }
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureDimensions_3d) {
-    auto* t = b.FunctionParam(
-        "t", ty.Get<core::type::SampledTexture>(core::type::TextureDimension::k3d, ty.f32()));
+    auto* t = b.FunctionParam("t", ty.sampled_texture(core::type::TextureDimension::k3d, ty.f32()));
     auto* func = b.Function("foo", ty.vec3<u32>());
     func->SetParams({t});
     b.Append(func->Block(), [&] {
@@ -809,7 +803,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureDimensions_3d) {
     auto* expect = R"(
 %foo = func(%t:texture_3d<f32>):vec3<u32> {
   $B1: {
-    %3:ptr<function, vec3<u32>, read_write> = var
+    %3:ptr<function, vec3<u32>, read_write> = var undef
     %4:ptr<function, u32, read_write> = access %3, 0u
     %5:ptr<function, u32, read_write> = access %3, 1u
     %6:ptr<function, u32, read_write> = access %3, 2u
@@ -827,8 +821,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureDimensions_3d) {
 }
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_1DF32) {
-    auto* t = b.FunctionParam(
-        "t", ty.Get<core::type::SampledTexture>(core::type::TextureDimension::k1d, ty.f32()));
+    auto* t = b.FunctionParam("t", ty.sampled_texture(core::type::TextureDimension::k1d, ty.f32()));
     auto* func = b.Function("foo", ty.vec4<f32>());
     func->SetParams({t});
     b.Append(func->Block(), [&] {
@@ -851,12 +844,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_1DF32) {
     auto* expect = R"(
 %foo = func(%t:texture_1d<f32>):vec4<f32> {
   $B1: {
-    %3:i32 = convert 0i
-    %4:i32 = convert 0u
-    %5:vec2<i32> = construct %3, %4
-    %6:vec4<f32> = %t.Load %5
-    %7:vec4<f32> = convert %6
-    ret %7
+    %3:i32 = convert 0u
+    %4:vec2<i32> = construct 0i, %3
+    %5:vec4<f32> = %t.Load %4
+    ret %5
   }
 }
 )";
@@ -867,8 +858,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_1DF32) {
 }
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_2DLevelI32) {
-    auto* t = b.FunctionParam(
-        "t", ty.Get<core::type::SampledTexture>(core::type::TextureDimension::k2d, ty.i32()));
+    auto* t = b.FunctionParam("t", ty.sampled_texture(core::type::TextureDimension::k2d, ty.i32()));
     auto* func = b.Function("foo", ty.vec4<i32>());
     func->SetParams({t});
     b.Append(func->Block(), [&] {
@@ -891,12 +881,9 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_2DLevelI32) {
     auto* expect = R"(
 %foo = func(%t:texture_2d<i32>):vec4<i32> {
   $B1: {
-    %3:vec2<i32> = convert vec2<i32>(0i)
-    %4:i32 = convert 0i
-    %5:vec3<i32> = construct %3, %4
-    %6:vec4<i32> = %t.Load %5
-    %7:vec4<i32> = convert %6
-    ret %7
+    %3:vec3<i32> = construct vec2<i32>(0i), 0i
+    %4:vec4<i32> = %t.Load %3
+    ret %4
   }
 }
 )";
@@ -907,8 +894,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_2DLevelI32) {
 }
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_3DLevelU32) {
-    auto* t = b.FunctionParam(
-        "t", ty.Get<core::type::SampledTexture>(core::type::TextureDimension::k3d, ty.f32()));
+    auto* t = b.FunctionParam("t", ty.sampled_texture(core::type::TextureDimension::k3d, ty.f32()));
     auto* func = b.Function("foo", ty.vec4<f32>());
     func->SetParams({t});
     b.Append(func->Block(), [&] {
@@ -931,12 +917,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_3DLevelU32) {
     auto* expect = R"(
 %foo = func(%t:texture_3d<f32>):vec4<f32> {
   $B1: {
-    %3:vec3<i32> = convert vec3<i32>(0i)
-    %4:i32 = convert 0u
-    %5:vec4<i32> = construct %3, %4
-    %6:vec4<f32> = %t.Load %5
-    %7:vec4<f32> = convert %6
-    ret %7
+    %3:i32 = convert 0u
+    %4:vec4<i32> = construct vec3<i32>(0i), %3
+    %5:vec4<f32> = %t.Load %4
+    ret %5
   }
 }
 )";
@@ -947,8 +931,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_3DLevelU32) {
 }
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_Multisampled2DI32) {
-    auto* t = b.FunctionParam(
-        "t", ty.Get<core::type::MultisampledTexture>(core::type::TextureDimension::k2d, ty.i32()));
+    auto* t =
+        b.FunctionParam("t", ty.multisampled_texture(core::type::TextureDimension::k2d, ty.i32()));
     auto* func = b.Function("foo", ty.vec4<i32>());
     func->SetParams({t});
     b.Append(func->Block(), [&] {
@@ -971,11 +955,9 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_Multisampled2DI32) {
     auto* expect = R"(
 %foo = func(%t:texture_multisampled_2d<i32>):vec4<i32> {
   $B1: {
-    %3:vec2<i32> = convert vec2<i32>(0i)
-    %4:i32 = convert 0u
-    %5:vec4<i32> = %t.Load %3, %4
-    %6:vec4<i32> = convert %5
-    ret %6
+    %3:i32 = convert 0u
+    %4:vec4<i32> = %t.Load vec2<i32>(0i), %3
+    ret %4
   }
 }
 )";
@@ -986,8 +968,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_Multisampled2DI32) {
 }
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_Depth2DLevelF32) {
-    auto* t =
-        b.FunctionParam("t", ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2d));
+    auto* t = b.FunctionParam("t", ty.depth_texture(core::type::TextureDimension::k2d));
     auto* func = b.Function("foo", ty.f32());
     func->SetParams({t});
     b.Append(func->Block(), [&] {
@@ -1010,12 +991,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_Depth2DLevelF32) {
     auto* expect = R"(
 %foo = func(%t:texture_depth_2d):f32 {
   $B1: {
-    %3:vec2<i32> = convert vec2<i32>(0i)
-    %4:i32 = convert 0u
-    %5:vec3<i32> = construct %3, %4
-    %6:vec4<f32> = %t.Load %5
-    %7:f32 = swizzle %6, x
-    ret %7
+    %3:i32 = convert 0u
+    %4:vec3<i32> = construct vec2<i32>(0i), %3
+    %5:vec4<f32> = %t.Load %4
+    %6:f32 = swizzle %5, x
+    ret %6
   }
 }
 )";
@@ -1026,8 +1006,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_Depth2DLevelF32) {
 }
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_Depth2DArrayLevelF32) {
-    auto* t = b.FunctionParam(
-        "t", ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2dArray));
+    auto* t = b.FunctionParam("t", ty.depth_texture(core::type::TextureDimension::k2dArray));
     auto* func = b.Function("foo", ty.f32());
     func->SetParams({t});
     b.Append(func->Block(), [&] {
@@ -1051,13 +1030,12 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_Depth2DArrayLevelF32) {
     auto* expect = R"(
 %foo = func(%t:texture_depth_2d_array):f32 {
   $B1: {
-    %3:vec2<i32> = convert vec2<i32>(0i)
+    %3:i32 = convert 0u
     %4:i32 = convert 0u
-    %5:i32 = convert 0u
-    %6:vec4<i32> = construct %3, %4, %5
-    %7:vec4<f32> = %t.Load %6
-    %8:f32 = swizzle %7, x
-    ret %8
+    %5:vec4<i32> = construct vec2<i32>(0i), %3, %4
+    %6:vec4<f32> = %t.Load %5
+    %7:f32 = swizzle %6, x
+    ret %7
   }
 }
 )";
@@ -1068,8 +1046,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_Depth2DArrayLevelF32) {
 }
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_DepthMultisampledF32) {
-    auto* t = b.FunctionParam(
-        "t", ty.Get<core::type::DepthMultisampledTexture>(core::type::TextureDimension::k2d));
+    auto* t =
+        b.FunctionParam("t", ty.depth_multisampled_texture(core::type::TextureDimension::k2d));
     auto* func = b.Function("foo", ty.f32());
     func->SetParams({t});
     b.Append(func->Block(), [&] {
@@ -1092,11 +1070,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_DepthMultisampledF32) {
     auto* expect = R"(
 %foo = func(%t:texture_depth_multisampled_2d):f32 {
   $B1: {
-    %3:vec2<i32> = convert vec2<i32>(0i)
-    %4:i32 = convert 0u
-    %5:vec4<f32> = %t.Load %3, %4
-    %6:f32 = swizzle %5, x
-    ret %6
+    %3:i32 = convert 0u
+    %4:vec4<f32> = %t.Load vec2<i32>(0i), %3
+    %5:f32 = swizzle %4, x
+    ret %5
   }
 }
 )";
@@ -1107,11 +1084,9 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureLoad_DepthMultisampledF32) {
 }
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureStore1D) {
-    auto* t = b.Var(ty.ptr(
-        handle, ty.Get<core::type::StorageTexture>(
-                    core::type::TextureDimension::k1d, core::TexelFormat::kR32Float,
-                    core::Access::kReadWrite,
-                    core::type::StorageTexture::SubtypeFor(core::TexelFormat::kR32Float, ty))));
+    auto* t = b.Var(
+        ty.ptr(handle, ty.storage_texture(core::type::TextureDimension::k1d,
+                                          core::TexelFormat::kR32Float, core::Access::kReadWrite)));
     t->SetBindingPoint(0, 0);
     b.ir.root_block->Append(t);
 
@@ -1125,7 +1100,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureStore1D) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_storage_1d<r32float, read_write>, read> = var @binding_point(0, 0)
+  %1:ptr<handle, texture_storage_1d<r32float, read_write>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -1140,7 +1115,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_storage_1d<r32float, read_write>, read> = var @binding_point(0, 0)
+  %1:ptr<handle, texture_storage_1d<r32float, read_write>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -1158,11 +1133,9 @@ $B1: {  # root
 }
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureStore3D) {
-    auto* t = b.Var(ty.ptr(
-        handle, ty.Get<core::type::StorageTexture>(
-                    core::type::TextureDimension::k3d, core::TexelFormat::kR32Float,
-                    core::Access::kReadWrite,
-                    core::type::StorageTexture::SubtypeFor(core::TexelFormat::kR32Float, ty))));
+    auto* t = b.Var(
+        ty.ptr(handle, ty.storage_texture(core::type::TextureDimension::k3d,
+                                          core::TexelFormat::kR32Float, core::Access::kReadWrite)));
     t->SetBindingPoint(0, 0);
     b.ir.root_block->Append(t);
 
@@ -1176,7 +1149,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureStore3D) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_storage_3d<r32float, read_write>, read> = var @binding_point(0, 0)
+  %1:ptr<handle, texture_storage_3d<r32float, read_write>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -1191,7 +1164,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_storage_3d<r32float, read_write>, read> = var @binding_point(0, 0)
+  %1:ptr<handle, texture_storage_3d<r32float, read_write>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -1210,10 +1183,8 @@ $B1: {  # root
 
 TEST_F(HlslWriter_BuiltinPolyfillTest, TextureStoreArray) {
     auto* t = b.Var(ty.ptr(
-        handle, ty.Get<core::type::StorageTexture>(
-                    core::type::TextureDimension::k2dArray, core::TexelFormat::kRgba32Float,
-                    core::Access::kReadWrite,
-                    core::type::StorageTexture::SubtypeFor(core::TexelFormat::kR32Float, ty))));
+        handle, ty.storage_texture(core::type::TextureDimension::k2dArray,
+                                   core::TexelFormat::kRgba32Float, core::Access::kReadWrite)));
     t->SetBindingPoint(0, 0);
     b.ir.root_block->Append(t);
 
@@ -1227,7 +1198,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureStoreArray) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_storage_2d_array<rgba32float, read_write>, read> = var @binding_point(0, 0)
+  %1:ptr<handle, texture_storage_2d_array<rgba32float, read_write>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -1242,7 +1213,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_storage_2d_array<rgba32float, read_write>, read> = var @binding_point(0, 0)
+  %1:ptr<handle, texture_storage_2d_array<rgba32float, read_write>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -1265,12 +1236,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGatherCompare_Depth2d) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(
-            ty.ptr(handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2d)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2d)));
         tex->SetBindingPoint(0, 0);
 
-        sampler = b.Var(ty.ptr(
-            handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.comparison_sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -1288,8 +1257,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGatherCompare_Depth2d) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1307,8 +1276,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1332,12 +1301,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGatherCompare_Depth2dOffset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(
-            ty.ptr(handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2d)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2d)));
         tex->SetBindingPoint(0, 0);
 
-        sampler = b.Var(ty.ptr(
-            handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.comparison_sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -1356,8 +1323,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGatherCompare_Depth2dOffset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1376,8 +1343,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1402,12 +1369,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGatherCompare_DepthCubeArray) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(
-            handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::kCubeArray)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::kCubeArray)));
         tex->SetBindingPoint(0, 0);
 
-        sampler = b.Var(ty.ptr(
-            handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.comparison_sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -1426,8 +1391,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGatherCompare_DepthCubeArray) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_cube_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_cube_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1445,8 +1410,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_cube_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_cube_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1472,12 +1437,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGatherCompare_Depth2dArrayOffset) 
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(
-            handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2dArray)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2dArray)));
         tex->SetBindingPoint(0, 0);
 
-        sampler = b.Var(ty.ptr(
-            handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.comparison_sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -1497,8 +1460,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGatherCompare_Depth2dArrayOffset) 
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1517,8 +1480,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1545,12 +1508,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGather_Alpha) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2d, ty.i32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2d, ty.i32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -1566,8 +1528,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGather_Alpha) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<i32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<i32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1585,8 +1547,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<i32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<i32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1609,12 +1571,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGather_RedOffset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2d, ty.i32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2d, ty.i32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -1631,8 +1592,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGather_RedOffset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<i32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<i32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1650,8 +1611,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<i32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<i32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1674,12 +1635,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGather_GreenArray) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2dArray, ty.i32())));
+        tex = b.Var(
+            ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2dArray, ty.i32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -1697,8 +1657,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGather_GreenArray) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<i32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<i32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1716,8 +1676,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<i32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<i32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1743,12 +1703,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGather_BlueArrayOffset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2dArray, ty.i32())));
+        tex = b.Var(
+            ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2dArray, ty.i32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -1767,8 +1726,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGather_BlueArrayOffset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<i32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<i32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1786,8 +1745,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<i32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<i32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1813,12 +1772,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGather_Depth) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(
-            ty.ptr(handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2d)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2d)));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -1834,8 +1791,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGather_Depth) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1853,8 +1810,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1877,12 +1834,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGather_DepthOffset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(
-            ty.ptr(handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2d)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2d)));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -1899,8 +1854,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGather_DepthOffset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1918,8 +1873,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1942,12 +1897,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGather_DepthArray) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(
-            handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2dArray)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2dArray)));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -1964,8 +1917,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGather_DepthArray) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1983,8 +1936,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2009,12 +1962,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGather_DepthArrayOffset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(
-            handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2dArray)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2dArray)));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -2033,8 +1984,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureGather_DepthArrayOffset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2052,8 +2003,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2079,12 +2030,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_1d) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k1d, ty.f32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k1d, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -2100,8 +2050,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_1d) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_1d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_1d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2118,8 +2068,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_1d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_1d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2140,12 +2090,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_2d) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2d, ty.f32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2d, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -2161,8 +2110,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_2d) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2180,8 +2129,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2203,12 +2152,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_2d_Offset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2d, ty.f32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2d, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -2225,8 +2173,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_2d_Offset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2244,8 +2192,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2267,12 +2215,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_2d_Array) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2dArray, ty.f32())));
+        tex = b.Var(
+            ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2dArray, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -2289,8 +2236,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_2d_Array) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2308,8 +2255,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2333,12 +2280,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_2d_Array_Offset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2dArray, ty.f32())));
+        tex = b.Var(
+            ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2dArray, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -2357,8 +2303,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_2d_Array_Offset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2376,8 +2322,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2401,12 +2347,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_3d) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k3d, ty.f32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k3d, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -2422,8 +2367,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_3d) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_3d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_3d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2441,8 +2386,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_3d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_3d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2464,12 +2409,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_3d_Offset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k3d, ty.f32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k3d, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -2486,8 +2430,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_3d_Offset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_3d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_3d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2505,8 +2449,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_3d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_3d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2528,12 +2472,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_Cube) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::kCube, ty.f32())));
+        tex = b.Var(
+            ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::kCube, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -2549,8 +2492,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_Cube) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_cube<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_cube<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2568,8 +2511,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_cube<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_cube<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2591,12 +2534,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_Cube_Array) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::kCubeArray, ty.f32())));
+        tex = b.Var(
+            ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::kCubeArray, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -2613,8 +2555,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_Cube_Array) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_cube_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_cube_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2632,8 +2574,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_cube_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_cube_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2657,12 +2599,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_Depth2d) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(
-            ty.ptr(handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2d)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2d)));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -2678,8 +2618,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_Depth2d) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2697,8 +2637,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2721,12 +2661,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_Depth2d_Offset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(
-            ty.ptr(handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2d)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2d)));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -2743,8 +2681,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_Depth2d_Offset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2762,8 +2700,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2786,12 +2724,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_Depth2d_Array) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(
-            handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2dArray)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2dArray)));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -2808,8 +2744,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_Depth2d_Array) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2827,8 +2763,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2853,12 +2789,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_Depth2d_Array_Offset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(
-            handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2dArray)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2dArray)));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -2876,8 +2810,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_Depth2d_Array_Offset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2895,8 +2829,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2921,12 +2855,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_DepthCube_Array) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(
-            handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::kCubeArray)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::kCubeArray)));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -2943,8 +2875,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSample_DepthCube_Array) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_cube_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_cube_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2962,8 +2894,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_cube_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_cube_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -2988,12 +2920,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleBias_2d) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2d, ty.f32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2d, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -3009,8 +2940,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleBias_2d) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3028,8 +2959,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3051,12 +2982,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleBias_2d_Offset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2d, ty.f32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2d, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -3074,8 +3004,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleBias_2d_Offset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3093,8 +3023,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3116,12 +3046,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleBias_2d_Array) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2dArray, ty.f32())));
+        tex = b.Var(
+            ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2dArray, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -3139,8 +3068,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleBias_2d_Array) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3158,8 +3087,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3183,12 +3112,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleBias_2d_Array_Offset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2dArray, ty.f32())));
+        tex = b.Var(
+            ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2dArray, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -3207,8 +3135,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleBias_2d_Array_Offset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3226,8 +3154,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3251,12 +3179,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleBias_3d) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k3d, ty.f32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k3d, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -3272,8 +3199,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleBias_3d) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_3d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_3d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3291,8 +3218,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_3d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_3d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3314,12 +3241,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleBias_3d_Offset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k3d, ty.f32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k3d, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -3337,8 +3263,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleBias_3d_Offset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_3d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_3d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3356,8 +3282,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_3d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_3d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3379,12 +3305,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleBias_Cube) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::kCube, ty.f32())));
+        tex = b.Var(
+            ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::kCube, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -3400,8 +3325,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleBias_Cube) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_cube<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_cube<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3419,8 +3344,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_cube<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_cube<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3442,12 +3367,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleBias_Cube_Array) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::kCubeArray, ty.f32())));
+        tex = b.Var(
+            ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::kCubeArray, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -3465,8 +3389,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleBias_Cube_Array) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_cube_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_cube_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3484,8 +3408,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_cube_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_cube_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3509,12 +3433,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompare_2d) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(
-            ty.ptr(handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2d)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2d)));
         tex->SetBindingPoint(0, 0);
 
-        sampler = b.Var(ty.ptr(
-            handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.comparison_sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -3530,8 +3452,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompare_2d) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3549,8 +3471,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3572,12 +3494,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompare_2d_Offset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(
-            ty.ptr(handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2d)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2d)));
         tex->SetBindingPoint(0, 0);
 
-        sampler = b.Var(ty.ptr(
-            handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.comparison_sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -3594,8 +3514,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompare_2d_Offset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3613,8 +3533,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3636,12 +3556,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompare_2d_Array) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(
-            handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2dArray)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2dArray)));
         tex->SetBindingPoint(0, 0);
 
-        sampler = b.Var(ty.ptr(
-            handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.comparison_sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -3659,8 +3577,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompare_2d_Array) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3678,8 +3596,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3703,12 +3621,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompare_2d_Array_Offset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(
-            handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2dArray)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2dArray)));
         tex->SetBindingPoint(0, 0);
 
-        sampler = b.Var(ty.ptr(
-            handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.comparison_sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -3727,8 +3643,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompare_2d_Array_Offset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3746,8 +3662,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3771,12 +3687,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompare_Cube) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(
-            ty.ptr(handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::kCube)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::kCube)));
         tex->SetBindingPoint(0, 0);
 
-        sampler = b.Var(ty.ptr(
-            handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.comparison_sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -3792,8 +3706,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompare_Cube) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_cube, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_cube, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3811,8 +3725,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_cube, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_cube, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3834,12 +3748,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompare_Cube_Array) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(
-            handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::kCubeArray)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::kCubeArray)));
         tex->SetBindingPoint(0, 0);
 
-        sampler = b.Var(ty.ptr(
-            handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.comparison_sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -3857,8 +3769,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompare_Cube_Array) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_cube_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_cube_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3876,8 +3788,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_cube_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_cube_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3901,12 +3813,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompareLevel_2d) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(
-            ty.ptr(handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2d)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2d)));
         tex->SetBindingPoint(0, 0);
 
-        sampler = b.Var(ty.ptr(
-            handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.comparison_sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -3922,8 +3832,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompareLevel_2d) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3941,8 +3851,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -3964,12 +3874,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompareLevel_2d_Offset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(
-            ty.ptr(handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2d)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2d)));
         tex->SetBindingPoint(0, 0);
 
-        sampler = b.Var(ty.ptr(
-            handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.comparison_sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -3987,8 +3895,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompareLevel_2d_Offset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4006,8 +3914,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4029,12 +3937,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompareLevel_2d_Array) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(
-            handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2dArray)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2dArray)));
         tex->SetBindingPoint(0, 0);
 
-        sampler = b.Var(ty.ptr(
-            handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.comparison_sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -4052,8 +3958,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompareLevel_2d_Array) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4071,8 +3977,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4096,12 +4002,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompareLevel_2d_Array_Offset
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(
-            handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2dArray)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2dArray)));
         tex->SetBindingPoint(0, 0);
 
-        sampler = b.Var(ty.ptr(
-            handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.comparison_sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -4120,8 +4024,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompareLevel_2d_Array_Offset
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4139,8 +4043,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4164,12 +4068,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompareLevel_Cube) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(
-            ty.ptr(handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::kCube)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::kCube)));
         tex->SetBindingPoint(0, 0);
 
-        sampler = b.Var(ty.ptr(
-            handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.comparison_sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -4185,8 +4087,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompareLevel_Cube) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_cube, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_cube, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4204,8 +4106,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_cube, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_cube, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4227,12 +4129,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompareLevel_Cube_Array) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(
-            handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::kCubeArray)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::kCubeArray)));
         tex->SetBindingPoint(0, 0);
 
-        sampler = b.Var(ty.ptr(
-            handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.comparison_sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -4250,8 +4150,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleCompareLevel_Cube_Array) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_cube_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_cube_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4269,8 +4169,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_cube_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler_comparison, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_cube_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler_comparison, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4294,12 +4194,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleGrad_2d) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2d, ty.f32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2d, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -4317,8 +4216,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleGrad_2d) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4338,8 +4237,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4363,12 +4262,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleGrad_2d_Offset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2d, ty.f32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2d, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -4388,8 +4286,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleGrad_2d_Offset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4409,8 +4307,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4434,12 +4332,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleGrad_2d_Array) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2dArray, ty.f32())));
+        tex = b.Var(
+            ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2dArray, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -4459,8 +4356,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleGrad_2d_Array) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4480,8 +4377,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4507,12 +4404,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleGrad_2d_Array_Offset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2dArray, ty.f32())));
+        tex = b.Var(
+            ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2dArray, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -4533,8 +4429,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleGrad_2d_Array_Offset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4554,8 +4450,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4581,12 +4477,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleGrad_3d) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k3d, ty.f32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k3d, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -4604,8 +4499,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleGrad_3d) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_3d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_3d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4625,8 +4520,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_3d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_3d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4650,12 +4545,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleGrad_3d_Offset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k3d, ty.f32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k3d, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -4675,8 +4569,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleGrad_3d_Offset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_3d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_3d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4696,8 +4590,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_3d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_3d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4721,12 +4615,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleGrad_Cube) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::kCube, ty.f32())));
+        tex = b.Var(
+            ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::kCube, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -4744,8 +4637,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleGrad_Cube) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_cube<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_cube<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4765,8 +4658,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_cube<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_cube<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4790,12 +4683,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleGrad_Cube_Array) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::kCubeArray, ty.f32())));
+        tex = b.Var(
+            ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::kCubeArray, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -4815,8 +4707,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleGrad_Cube_Array) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_cube_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_cube_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4836,8 +4728,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_cube_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_cube_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4863,12 +4755,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_2d) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2d, ty.f32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2d, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -4884,8 +4775,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_2d) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4903,8 +4794,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4912,9 +4803,8 @@ $B1: {  # root
     %4:vec2<f32> = construct 1.0f, 2.0f
     %5:texture_2d<f32> = load %1
     %6:sampler = load %2
-    %7:f32 = convert 3.0f
-    %8:vec4<f32> = %5.SampleLevel %6, %4, %7
-    %x:vec4<f32> = let %8
+    %7:vec4<f32> = %5.SampleLevel %6, %4, 3.0f
+    %x:vec4<f32> = let %7
     ret
   }
 }
@@ -4927,12 +4817,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_2d_Offset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2d, ty.f32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2d, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -4950,8 +4839,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_2d_Offset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4969,8 +4858,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -4978,9 +4867,8 @@ $B1: {  # root
     %4:vec2<f32> = construct 1.0f, 2.0f
     %5:texture_2d<f32> = load %1
     %6:sampler = load %2
-    %7:f32 = convert 3.0f
-    %8:vec4<f32> = %5.SampleLevel %6, %4, %7, vec2<i32>(4i, 5i)
-    %x:vec4<f32> = let %8
+    %7:vec4<f32> = %5.SampleLevel %6, %4, 3.0f, vec2<i32>(4i, 5i)
+    %x:vec4<f32> = let %7
     ret
   }
 }
@@ -4993,12 +4881,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_2d_Array) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2dArray, ty.f32())));
+        tex = b.Var(
+            ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2dArray, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -5016,8 +4903,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_2d_Array) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5035,8 +4922,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5046,9 +4933,8 @@ $B1: {  # root
     %6:sampler = load %2
     %7:f32 = convert 4u
     %8:vec3<f32> = construct %4, %7
-    %9:f32 = convert 3.0f
-    %10:vec4<f32> = %5.SampleLevel %6, %8, %9
-    %x:vec4<f32> = let %10
+    %9:vec4<f32> = %5.SampleLevel %6, %8, 3.0f
+    %x:vec4<f32> = let %9
     ret
   }
 }
@@ -5061,12 +4947,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_2d_Array_Offset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k2dArray, ty.f32())));
+        tex = b.Var(
+            ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2dArray, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -5085,8 +4970,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_2d_Array_Offset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5104,8 +4989,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_2d_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5115,9 +5000,8 @@ $B1: {  # root
     %6:sampler = load %2
     %7:f32 = convert 4u
     %8:vec3<f32> = construct %4, %7
-    %9:f32 = convert 3.0f
-    %10:vec4<f32> = %5.SampleLevel %6, %8, %9, vec2<i32>(4i, 5i)
-    %x:vec4<f32> = let %10
+    %9:vec4<f32> = %5.SampleLevel %6, %8, 3.0f, vec2<i32>(4i, 5i)
+    %x:vec4<f32> = let %9
     ret
   }
 }
@@ -5130,12 +5014,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_3d) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k3d, ty.f32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k3d, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -5151,8 +5034,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_3d) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_3d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_3d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5170,8 +5053,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_3d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_3d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5179,9 +5062,8 @@ $B1: {  # root
     %4:vec3<f32> = construct 1.0f, 2.0f, 3.0f
     %5:texture_3d<f32> = load %1
     %6:sampler = load %2
-    %7:f32 = convert 3.0f
-    %8:vec4<f32> = %5.SampleLevel %6, %4, %7
-    %x:vec4<f32> = let %8
+    %7:vec4<f32> = %5.SampleLevel %6, %4, 3.0f
+    %x:vec4<f32> = let %7
     ret
   }
 }
@@ -5194,12 +5076,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_3d_Offset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::k3d, ty.f32())));
+        tex =
+            b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k3d, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -5217,8 +5098,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_3d_Offset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_3d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_3d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5236,8 +5117,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_3d<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_3d<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5245,9 +5126,8 @@ $B1: {  # root
     %4:vec3<f32> = construct 1.0f, 2.0f, 3.0f
     %5:texture_3d<f32> = load %1
     %6:sampler = load %2
-    %7:f32 = convert 3.0f
-    %8:vec4<f32> = %5.SampleLevel %6, %4, %7, vec3<i32>(4i, 5i, 6i)
-    %x:vec4<f32> = let %8
+    %7:vec4<f32> = %5.SampleLevel %6, %4, 3.0f, vec3<i32>(4i, 5i, 6i)
+    %x:vec4<f32> = let %7
     ret
   }
 }
@@ -5260,12 +5140,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_Cube) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::kCube, ty.f32())));
+        tex = b.Var(
+            ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::kCube, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -5281,8 +5160,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_Cube) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_cube<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_cube<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5300,8 +5179,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_cube<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_cube<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5309,9 +5188,8 @@ $B1: {  # root
     %4:vec3<f32> = construct 1.0f, 2.0f, 3.0f
     %5:texture_cube<f32> = load %1
     %6:sampler = load %2
-    %7:f32 = convert 3.0f
-    %8:vec4<f32> = %5.SampleLevel %6, %4, %7
-    %x:vec4<f32> = let %8
+    %7:vec4<f32> = %5.SampleLevel %6, %4, 3.0f
+    %x:vec4<f32> = let %7
     ret
   }
 }
@@ -5324,12 +5202,11 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_Cube_Array) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(handle, ty.Get<core::type::SampledTexture>(
-                                       core::type::TextureDimension::kCubeArray, ty.f32())));
+        tex = b.Var(
+            ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::kCubeArray, ty.f32())));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -5347,8 +5224,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_Cube_Array) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_cube_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_cube_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5366,8 +5243,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_cube_array<f32>, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_cube_array<f32>, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5377,9 +5254,8 @@ $B1: {  # root
     %6:sampler = load %2
     %7:f32 = convert 4u
     %8:vec4<f32> = construct %4, %7
-    %9:f32 = convert 3.0f
-    %10:vec4<f32> = %5.SampleLevel %6, %8, %9
-    %x:vec4<f32> = let %10
+    %9:vec4<f32> = %5.SampleLevel %6, %8, 3.0f
+    %x:vec4<f32> = let %9
     ret
   }
 }
@@ -5392,12 +5268,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_Depth2d) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(
-            ty.ptr(handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2d)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2d)));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -5413,8 +5287,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_Depth2d) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5432,8 +5306,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5457,12 +5331,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_Depth2d_Offset) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(
-            ty.ptr(handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2d)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2d)));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -5479,8 +5351,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_Depth2d_Offset) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5498,8 +5370,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5523,12 +5395,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_Depth2d_Array) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(
-            handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2dArray)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2dArray)));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -5545,8 +5415,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_Depth2d_Array) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5564,8 +5434,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5591,12 +5461,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_Depth2d_Array_Offset) 
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(
-            handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2dArray)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2dArray)));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -5615,8 +5483,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_Depth2d_Array_Offset) 
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5634,8 +5502,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5661,12 +5529,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_DepthCube_Array) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(ty.ptr(
-            handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::kCubeArray)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::kCubeArray)));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
@@ -5683,8 +5549,8 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, TextureSampleLevel_DepthCube_Array) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_cube_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_cube_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5702,8 +5568,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_cube_array, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_cube_array, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -5736,7 +5602,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, QuantizeToF16) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %x:ptr<function, vec2<f32>, read_write> = var, vec2<f32>(0.0f)
+    %x:ptr<function, vec2<f32>, read_write> = var vec2<f32>(0.0f)
     %3:vec2<f32> = load %x
     %4:vec2<f32> = quantizeToF16 %3
     %a:vec2<f32> = let %4
@@ -5749,7 +5615,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, QuantizeToF16) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %x:ptr<function, vec2<f32>, read_write> = var, vec2<f32>(0.0f)
+    %x:ptr<function, vec2<f32>, read_write> = var vec2<f32>(0.0f)
     %3:vec2<f32> = load %x
     %4:vec2<u32> = hlsl.f32tof16 %3
     %5:vec2<f32> = hlsl.f16tof32 %4
@@ -5775,7 +5641,6 @@ using HlslBuiltinPolyfillWorkgroupAtomic = core::ir::transform::TransformTestWit
 TEST_P(HlslBuiltinPolyfillWorkgroupAtomic, Access) {
     auto param = GetParam();
     auto* var = b.Var("v", workgroup, ty.atomic<i32>(), core::Access::kReadWrite);
-    var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
     auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
@@ -5786,7 +5651,7 @@ TEST_P(HlslBuiltinPolyfillWorkgroupAtomic, Access) {
 
     std::string src = R"(
 $B1: {  # root
-  %v:ptr<workgroup, atomic<i32>, read_write> = var @binding_point(0, 0)
+  %v:ptr<workgroup, atomic<i32>, read_write> = var undef
 }
 
 %foo = @fragment func():void {
@@ -5802,12 +5667,12 @@ $B1: {  # root
 
     std::string expect = R"(
 $B1: {  # root
-  %v:ptr<workgroup, atomic<i32>, read_write> = var @binding_point(0, 0)
+  %v:ptr<workgroup, atomic<i32>, read_write> = var undef
 }
 
 %foo = @fragment func():void {
   $B2: {
-    %3:ptr<function, i32, read_write> = var, 0i
+    %3:ptr<function, i32, read_write> = var 0i
     %4:void = hlsl.)" + std::string(param.interlock) +
                          R"( %v, 123i, %3
     %5:i32 = load %3
@@ -5840,7 +5705,6 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, BuiltinWorkgroupAtomicStore) {
                                                 });
 
     auto* var = b.Var("v", workgroup, sb, core::Access::kReadWrite);
-    var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
     auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
@@ -5858,7 +5722,7 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<workgroup, SB, read_write> = var @binding_point(0, 0)
+  %v:ptr<workgroup, SB, read_write> = var undef
 }
 
 %foo = @fragment func():void {
@@ -5879,13 +5743,13 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<workgroup, SB, read_write> = var @binding_point(0, 0)
+  %v:ptr<workgroup, SB, read_write> = var undef
 }
 
 %foo = @fragment func():void {
   $B2: {
     %3:ptr<workgroup, atomic<i32>, read_write> = access %v, 1u
-    %4:ptr<function, i32, read_write> = var, 0i
+    %4:ptr<function, i32, read_write> = var 0i
     %5:void = hlsl.InterlockedExchange %3, 123i, %4
     ret
   }
@@ -5903,7 +5767,6 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, BuiltinWorkgroupAtomicLoad) {
                                                 });
 
     auto* var = b.Var("v", workgroup, sb, core::Access::kReadWrite);
-    var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
     auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
@@ -5921,7 +5784,7 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<workgroup, SB, read_write> = var @binding_point(0, 0)
+  %v:ptr<workgroup, SB, read_write> = var undef
 }
 
 %foo = @fragment func():void {
@@ -5943,13 +5806,13 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<workgroup, SB, read_write> = var @binding_point(0, 0)
+  %v:ptr<workgroup, SB, read_write> = var undef
 }
 
 %foo = @fragment func():void {
   $B2: {
     %3:ptr<workgroup, atomic<i32>, read_write> = access %v, 1u
-    %4:ptr<function, i32, read_write> = var, 0i
+    %4:ptr<function, i32, read_write> = var 0i
     %5:void = hlsl.InterlockedOr %3, 0i, %4
     %6:i32 = load %4
     %x:i32 = let %6
@@ -5969,7 +5832,6 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, BuiltinWorkgroupAtomicSub) {
                                                 });
 
     auto* var = b.Var("v", workgroup, sb, core::Access::kReadWrite);
-    var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
     auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
@@ -5989,7 +5851,7 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<workgroup, SB, read_write> = var @binding_point(0, 0)
+  %v:ptr<workgroup, SB, read_write> = var undef
 }
 
 %foo = @fragment func():void {
@@ -6014,19 +5876,19 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<workgroup, SB, read_write> = var @binding_point(0, 0)
+  %v:ptr<workgroup, SB, read_write> = var undef
 }
 
 %foo = @fragment func():void {
   $B2: {
     %3:ptr<workgroup, atomic<i32>, read_write> = access %v, 1u
-    %4:ptr<function, i32, read_write> = var, 0i
+    %4:ptr<function, i32, read_write> = var 0i
     %5:i32 = sub 0i, 123i
     %6:void = hlsl.InterlockedAdd %3, %5, %4
     %7:i32 = load %4
     %x:i32 = let %7
     %9:ptr<workgroup, atomic<u32>, read_write> = access %v, 2u
-    %10:ptr<function, u32, read_write> = var, 0u
+    %10:ptr<function, u32, read_write> = var 0u
     %11:u32 = sub 0u, 123u
     %12:void = hlsl.InterlockedAdd %9, %11, %10
     %13:u32 = load %10
@@ -6047,7 +5909,6 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, BuiltinWorkgroupAtomicCompareExchangeWeak
                                                 });
 
     auto* var = b.Var("v", workgroup, sb, core::Access::kReadWrite);
-    var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
     auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
@@ -6072,7 +5933,7 @@ __atomic_compare_exchange_result_i32 = struct @align(4) {
 }
 
 $B1: {  # root
-  %v:ptr<workgroup, SB, read_write> = var @binding_point(0, 0)
+  %v:ptr<workgroup, SB, read_write> = var undef
 }
 
 %foo = @fragment func():void {
@@ -6099,13 +5960,13 @@ __atomic_compare_exchange_result_i32 = struct @align(4) {
 }
 
 $B1: {  # root
-  %v:ptr<workgroup, SB, read_write> = var @binding_point(0, 0)
+  %v:ptr<workgroup, SB, read_write> = var undef
 }
 
 %foo = @fragment func():void {
   $B2: {
     %3:ptr<workgroup, atomic<i32>, read_write> = access %v, 1u
-    %4:ptr<function, i32, read_write> = var, 0i
+    %4:ptr<function, i32, read_write> = var 0i
     %5:void = hlsl.InterlockedCompareExchange %3, 123i, 345i, %4
     %6:i32 = load %4
     %7:bool = eq %6, 123i
@@ -6131,7 +5992,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Pack2x16Float) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, vec2<f32>, read_write> = var, vec2<f32>(2.0f)
+    %u:ptr<function, vec2<f32>, read_write> = var vec2<f32>(2.0f)
     %3:vec2<f32> = load %u
     %4:u32 = pack2x16float %3
     %a:u32 = let %4
@@ -6144,7 +6005,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Pack2x16Float) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, vec2<f32>, read_write> = var, vec2<f32>(2.0f)
+    %u:ptr<function, vec2<f32>, read_write> = var vec2<f32>(2.0f)
     %3:vec2<f32> = load %u
     %4:vec2<u32> = hlsl.f32tof16 %3
     %5:u32 = swizzle %4, x
@@ -6171,7 +6032,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Unpack2x16Float) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, u32, read_write> = var, 2u
+    %u:ptr<function, u32, read_write> = var 2u
     %3:u32 = load %u
     %4:vec2<f32> = unpack2x16float %3
     %a:vec2<f32> = let %4
@@ -6184,7 +6045,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Unpack2x16Float) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, u32, read_write> = var, 2u
+    %u:ptr<function, u32, read_write> = var 2u
     %3:u32 = load %u
     %4:u32 = and %3, 65535u
     %5:u32 = shr %3, 16u
@@ -6211,7 +6072,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Pack2x16Snorm) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, vec2<f32>, read_write> = var, vec2<f32>(2.0f)
+    %u:ptr<function, vec2<f32>, read_write> = var vec2<f32>(2.0f)
     %3:vec2<f32> = load %u
     %4:u32 = pack2x16snorm %3
     %a:u32 = let %4
@@ -6224,7 +6085,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Pack2x16Snorm) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, vec2<f32>, read_write> = var, vec2<f32>(2.0f)
+    %u:ptr<function, vec2<f32>, read_write> = var vec2<f32>(2.0f)
     %3:vec2<f32> = load %u
     %4:vec2<f32> = clamp %3, vec2<f32>(-1.0f), vec2<f32>(1.0f)
     %5:vec2<f32> = mul %4, 32767.0f
@@ -6257,7 +6118,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Unpack2x16snorm) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, u32, read_write> = var, 2u
+    %u:ptr<function, u32, read_write> = var 2u
     %3:u32 = load %u
     %4:vec2<f32> = unpack2x16snorm %3
     %a:vec2<f32> = let %4
@@ -6270,7 +6131,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Unpack2x16snorm) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, u32, read_write> = var, 2u
+    %u:ptr<function, u32, read_write> = var 2u
     %3:u32 = load %u
     %4:i32 = convert %3
     %5:i32 = shl %4, 16u
@@ -6300,7 +6161,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Pack2x16unorm) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, vec2<f32>, read_write> = var, vec2<f32>(2.0f)
+    %u:ptr<function, vec2<f32>, read_write> = var vec2<f32>(2.0f)
     %3:vec2<f32> = load %u
     %4:u32 = pack2x16unorm %3
     %a:u32 = let %4
@@ -6313,7 +6174,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Pack2x16unorm) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, vec2<f32>, read_write> = var, vec2<f32>(2.0f)
+    %u:ptr<function, vec2<f32>, read_write> = var vec2<f32>(2.0f)
     %3:vec2<f32> = load %u
     %4:vec2<f32> = clamp %3, vec2<f32>(0.0f), vec2<f32>(1.0f)
     %5:vec2<f32> = mul %4, 65535.0f
@@ -6344,7 +6205,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Unpack2x16unorm) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, u32, read_write> = var, 2u
+    %u:ptr<function, u32, read_write> = var 2u
     %3:u32 = load %u
     %4:vec2<f32> = unpack2x16unorm %3
     %a:vec2<f32> = let %4
@@ -6357,7 +6218,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Unpack2x16unorm) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, u32, read_write> = var, 2u
+    %u:ptr<function, u32, read_write> = var 2u
     %3:u32 = load %u
     %4:u32 = and %3, 65535u
     %5:u32 = shr %3, 16u
@@ -6385,7 +6246,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Pack4x8Snorm) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, vec4<f32>, read_write> = var, vec4<f32>(2.0f)
+    %u:ptr<function, vec4<f32>, read_write> = var vec4<f32>(2.0f)
     %3:vec4<f32> = load %u
     %4:u32 = pack4x8snorm %3
     %a:u32 = let %4
@@ -6398,7 +6259,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Pack4x8Snorm) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, vec4<f32>, read_write> = var, vec4<f32>(2.0f)
+    %u:ptr<function, vec4<f32>, read_write> = var vec4<f32>(2.0f)
     %3:vec4<f32> = load %u
     %4:vec4<f32> = clamp %3, vec4<f32>(-1.0f), vec4<f32>(1.0f)
     %5:vec4<f32> = mul %4, 127.0f
@@ -6437,7 +6298,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Unpack4x8Snorm) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, u32, read_write> = var, 2u
+    %u:ptr<function, u32, read_write> = var 2u
     %3:u32 = load %u
     %4:vec4<f32> = unpack4x8snorm %3
     %a:vec4<f32> = let %4
@@ -6450,7 +6311,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Unpack4x8Snorm) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, u32, read_write> = var, 2u
+    %u:ptr<function, u32, read_write> = var 2u
     %3:u32 = load %u
     %4:i32 = convert %3
     %5:i32 = shl %4, 24u
@@ -6482,7 +6343,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Pack4x8Unorm) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, vec4<f32>, read_write> = var, vec4<f32>(2.0f)
+    %u:ptr<function, vec4<f32>, read_write> = var vec4<f32>(2.0f)
     %3:vec4<f32> = load %u
     %4:u32 = pack4x8unorm %3
     %a:u32 = let %4
@@ -6495,7 +6356,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Pack4x8Unorm) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, vec4<f32>, read_write> = var, vec4<f32>(2.0f)
+    %u:ptr<function, vec4<f32>, read_write> = var vec4<f32>(2.0f)
     %3:vec4<f32> = load %u
     %4:vec4<f32> = clamp %3, vec4<f32>(0.0f), vec4<f32>(1.0f)
     %5:vec4<f32> = mul %4, 255.0f
@@ -6532,7 +6393,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Unpack4x8Unorm) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, u32, read_write> = var, 2u
+    %u:ptr<function, u32, read_write> = var 2u
     %3:u32 = load %u
     %4:vec4<f32> = unpack4x8unorm %3
     %a:vec4<f32> = let %4
@@ -6545,7 +6406,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Unpack4x8Unorm) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, u32, read_write> = var, 2u
+    %u:ptr<function, u32, read_write> = var 2u
     %3:u32 = load %u
     %4:u32 = and %3, 255u
     %5:u32 = shr %3, 8u
@@ -6577,7 +6438,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Pack4xI8) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, vec4<i32>, read_write> = var, vec4<i32>(2i)
+    %u:ptr<function, vec4<i32>, read_write> = var vec4<i32>(2i)
     %3:vec4<i32> = load %u
     %4:u32 = pack4xI8 %3
     %a:u32 = let %4
@@ -6590,10 +6451,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Pack4xI8) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, vec4<i32>, read_write> = var, vec4<i32>(2i)
+    %u:ptr<function, vec4<i32>, read_write> = var vec4<i32>(2i)
     %3:vec4<i32> = load %u
     %4:hlsl.int8_t4_packed = hlsl.pack_s8 %3
-    %5:u32 = convert %4
+    %5:u32 = hlsl.convert %4
     %a:u32 = let %5
     ret
   }
@@ -6615,7 +6476,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Unpack4xI8) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, u32, read_write> = var, 2u
+    %u:ptr<function, u32, read_write> = var 2u
     %3:u32 = load %u
     %4:vec4<i32> = unpack4xI8 %3
     %a:vec4<i32> = let %4
@@ -6628,9 +6489,9 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Unpack4xI8) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, u32, read_write> = var, 2u
+    %u:ptr<function, u32, read_write> = var 2u
     %3:u32 = load %u
-    %4:hlsl.int8_t4_packed = convert %3
+    %4:hlsl.int8_t4_packed = hlsl.convert<hlsl.int8_t4_packed> %3
     %5:vec4<i32> = hlsl.unpack_s8s32 %4
     %a:vec4<i32> = let %5
     ret
@@ -6653,7 +6514,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Pack4xU8) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, vec4<u32>, read_write> = var, vec4<u32>(2u)
+    %u:ptr<function, vec4<u32>, read_write> = var vec4<u32>(2u)
     %3:vec4<u32> = load %u
     %4:u32 = pack4xU8 %3
     %a:u32 = let %4
@@ -6666,10 +6527,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Pack4xU8) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, vec4<u32>, read_write> = var, vec4<u32>(2u)
+    %u:ptr<function, vec4<u32>, read_write> = var vec4<u32>(2u)
     %3:vec4<u32> = load %u
     %4:hlsl.uint8_t4_packed = hlsl.pack_u8 %3
-    %5:u32 = convert %4
+    %5:u32 = hlsl.convert %4
     %a:u32 = let %5
     ret
   }
@@ -6691,7 +6552,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Unpack4xU8) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, u32, read_write> = var, 2u
+    %u:ptr<function, u32, read_write> = var 2u
     %3:u32 = load %u
     %4:vec4<u32> = unpack4xU8 %3
     %a:vec4<u32> = let %4
@@ -6704,9 +6565,9 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Unpack4xU8) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, u32, read_write> = var, 2u
+    %u:ptr<function, u32, read_write> = var 2u
     %3:u32 = load %u
-    %4:hlsl.uint8_t4_packed = convert %3
+    %4:hlsl.uint8_t4_packed = hlsl.convert<hlsl.uint8_t4_packed> %3
     %5:vec4<u32> = hlsl.unpack_u8u32 %4
     %a:vec4<u32> = let %5
     ret
@@ -6728,7 +6589,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Dot4U8Packed) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, u32, read_write> = var, 2u
+    %u:ptr<function, u32, read_write> = var 2u
     %3:u32 = load %u
     %4:u32 = dot4U8Packed %3, 3u
     %a:u32 = let %4
@@ -6741,9 +6602,9 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Dot4U8Packed) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, u32, read_write> = var, 2u
+    %u:ptr<function, u32, read_write> = var 2u
     %3:u32 = load %u
-    %accumulator:ptr<function, u32, read_write> = var, 0u
+    %accumulator:ptr<function, u32, read_write> = var 0u
     %5:u32 = hlsl.dot4add_u8packed %3, 3u, %accumulator
     %a:u32 = let %5
     ret
@@ -6766,7 +6627,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Dot4I8Packed) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, u32, read_write> = var, 2u
+    %u:ptr<function, u32, read_write> = var 2u
     %3:u32 = load %u
     %4:i32 = dot4I8Packed %3, 3u
     %a:i32 = let %4
@@ -6779,9 +6640,9 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Dot4I8Packed) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, u32, read_write> = var, 2u
+    %u:ptr<function, u32, read_write> = var 2u
     %3:u32 = load %u
-    %accumulator:ptr<function, i32, read_write> = var, 0i
+    %accumulator:ptr<function, i32, read_write> = var 0i
     %5:i32 = hlsl.dot4add_i8packed %3, 3u, %accumulator
     %a:i32 = let %5
     ret
@@ -6804,7 +6665,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Pack4xI8Clamp) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, vec4<i32>, read_write> = var, vec4<i32>(2i)
+    %u:ptr<function, vec4<i32>, read_write> = var vec4<i32>(2i)
     %3:vec4<i32> = load %u
     %4:u32 = pack4xI8Clamp %3
     %a:u32 = let %4
@@ -6817,10 +6678,10 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Pack4xI8Clamp) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, vec4<i32>, read_write> = var, vec4<i32>(2i)
+    %u:ptr<function, vec4<i32>, read_write> = var vec4<i32>(2i)
     %3:vec4<i32> = load %u
     %4:hlsl.int8_t4_packed = hlsl.pack_clamp_s8 %3
-    %5:u32 = convert %4
+    %5:u32 = hlsl.convert %4
     %a:u32 = let %5
     ret
   }
@@ -6841,7 +6702,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Asinh) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, f32, read_write> = var, 0.25f
+    %u:ptr<function, f32, read_write> = var 0.25f
     %3:f32 = load %u
     %4:f32 = asinh %3
     %a:f32 = let %4
@@ -6854,7 +6715,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Asinh) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, f32, read_write> = var, 0.25f
+    %u:ptr<function, f32, read_write> = var 0.25f
     %3:f32 = load %u
     %4:f32 = mul %3, %3
     %5:f32 = add %4, 1.0f
@@ -6881,7 +6742,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Acosh) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, f16, read_write> = var, 1.25h
+    %u:ptr<function, f16, read_write> = var 1.25h
     %3:f16 = load %u
     %4:f16 = acosh %3
     %a:f16 = let %4
@@ -6894,7 +6755,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Acosh) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, f16, read_write> = var, 1.25h
+    %u:ptr<function, f16, read_write> = var 1.25h
     %3:f16 = load %u
     %4:f16 = mul %3, %3
     %5:f16 = sub %4, 1.0h
@@ -6921,7 +6782,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Atanh) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, f32, read_write> = var, 0.25f
+    %u:ptr<function, f32, read_write> = var 0.25f
     %3:f32 = load %u
     %4:f32 = atanh %3
     %a:f32 = let %4
@@ -6934,7 +6795,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, Atanh) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, f32, read_write> = var, 0.25f
+    %u:ptr<function, f32, read_write> = var 0.25f
     %3:f32 = load %u
     %4:f32 = add 1.0f, %3
     %5:f32 = sub 1.0f, %3
@@ -6961,7 +6822,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, CountOneBits) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, i32, read_write> = var, 1i
+    %u:ptr<function, i32, read_write> = var 1i
     %3:i32 = load %u
     %4:i32 = countOneBits %3
     %a:i32 = let %4
@@ -6974,7 +6835,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, CountOneBits) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, i32, read_write> = var, 1i
+    %u:ptr<function, i32, read_write> = var 1i
     %3:i32 = load %u
     %4:u32 = hlsl.asuint %3
     %5:u32 = countOneBits %4
@@ -6999,7 +6860,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, ReverseBits) {
     auto* src = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, i32, read_write> = var, 1i
+    %u:ptr<function, i32, read_write> = var 1i
     %3:i32 = load %u
     %4:i32 = reverseBits %3
     %a:i32 = let %4
@@ -7012,7 +6873,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, ReverseBits) {
     auto* expect = R"(
 %foo = @fragment func():void {
   $B1: {
-    %u:ptr<function, i32, read_write> = var, 1i
+    %u:ptr<function, i32, read_write> = var 1i
     %3:i32 = load %u
     %4:u32 = hlsl.asuint %3
     %5:u32 = reverseBits %4
@@ -7098,7 +6959,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, SubgroupInclusiveAdd) {
     auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* let_a = b.Let("a", 2_f);
-        b.Let("b", b.Call(ty.f32(), core::BuiltinFn::kSubgroupInclusiveAdd, let_a->Result(0)));
+        b.Let("b", b.Call(ty.f32(), core::BuiltinFn::kSubgroupInclusiveAdd, let_a->Result()));
         b.Return(func);
     });
 
@@ -7134,7 +6995,7 @@ TEST_F(HlslWriter_BuiltinPolyfillTest, SubgroupInclusiveMul) {
     auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* let_a = b.Let("a", 2_f);
-        b.Let("b", b.Call(ty.f32(), core::BuiltinFn::kSubgroupInclusiveMul, let_a->Result(0)));
+        b.Let("b", b.Call(ty.f32(), core::BuiltinFn::kSubgroupInclusiveMul, let_a->Result()));
         b.Return(func);
     });
 
@@ -7250,7 +7111,7 @@ __modf_result_f32 = struct @align(4) {
 
 %foo = @fragment func():void {
   $B1: {
-    %2:ptr<function, f32, read_write> = var
+    %2:ptr<function, f32, read_write> = var undef
     %3:f32 = load %2
     %4:__modf_result_f32 = modf %3
     %a:__modf_result_f32 = let %4
@@ -7268,9 +7129,9 @@ __modf_result_f32 = struct @align(4) {
 
 %foo = @fragment func():void {
   $B1: {
-    %2:ptr<function, f32, read_write> = var
+    %2:ptr<function, f32, read_write> = var undef
     %3:f32 = load %2
-    %4:ptr<function, f32, read_write> = var
+    %4:ptr<function, f32, read_write> = var undef
     %5:f32 = load %4
     %6:f32 = hlsl.modf %3, %5
     %7:f32 = load %4
@@ -7302,7 +7163,7 @@ __modf_result_vec3_f32 = struct @align(16) {
 
 %foo = @fragment func():void {
   $B1: {
-    %2:ptr<function, vec3<f32>, read_write> = var
+    %2:ptr<function, vec3<f32>, read_write> = var undef
     %3:vec3<f32> = load %2
     %4:__modf_result_vec3_f32 = modf %3
     %a:__modf_result_vec3_f32 = let %4
@@ -7320,9 +7181,9 @@ __modf_result_vec3_f32 = struct @align(16) {
 
 %foo = @fragment func():void {
   $B1: {
-    %2:ptr<function, vec3<f32>, read_write> = var
+    %2:ptr<function, vec3<f32>, read_write> = var undef
     %3:vec3<f32> = load %2
-    %4:ptr<function, vec3<f32>, read_write> = var
+    %4:ptr<function, vec3<f32>, read_write> = var undef
     %5:vec3<f32> = load %4
     %6:vec3<f32> = hlsl.modf %3, %5
     %7:vec3<f32> = load %4
@@ -7354,7 +7215,7 @@ __frexp_result_f32 = struct @align(4) {
 
 %foo = @fragment func():void {
   $B1: {
-    %2:ptr<function, f32, read_write> = var
+    %2:ptr<function, f32, read_write> = var undef
     %3:f32 = load %2
     %4:__frexp_result_f32 = frexp %3
     %a:__frexp_result_f32 = let %4
@@ -7372,20 +7233,18 @@ __frexp_result_f32 = struct @align(4) {
 
 %foo = @fragment func():void {
   $B1: {
-    %2:ptr<function, f32, read_write> = var
+    %2:ptr<function, f32, read_write> = var undef
     %3:f32 = load %2
-    %4:ptr<function, f32, read_write> = var
+    %4:ptr<function, f32, read_write> = var undef
     %5:f32 = load %4
     %6:f32 = hlsl.frexp %3, %5
     %7:i32 = hlsl.sign %3
     %8:f32 = convert %7
-    %9:f32 = load %4
-    %10:f32 = mul %8, %9
-    store %4, %10
-    %11:f32 = load %4
-    %12:i32 = convert %11
-    %13:__frexp_result_f32 = construct %6, %12
-    %a:__frexp_result_f32 = let %13
+    %9:f32 = mul %8, %6
+    %10:f32 = load %4
+    %11:i32 = convert %10
+    %12:__frexp_result_f32 = construct %9, %11
+    %a:__frexp_result_f32 = let %12
     ret
   }
 }
@@ -7412,7 +7271,7 @@ __frexp_result_vec3_f32 = struct @align(16) {
 
 %foo = @fragment func():void {
   $B1: {
-    %2:ptr<function, vec3<f32>, read_write> = var
+    %2:ptr<function, vec3<f32>, read_write> = var undef
     %3:vec3<f32> = load %2
     %4:__frexp_result_vec3_f32 = frexp %3
     %a:__frexp_result_vec3_f32 = let %4
@@ -7430,20 +7289,18 @@ __frexp_result_vec3_f32 = struct @align(16) {
 
 %foo = @fragment func():void {
   $B1: {
-    %2:ptr<function, vec3<f32>, read_write> = var
+    %2:ptr<function, vec3<f32>, read_write> = var undef
     %3:vec3<f32> = load %2
-    %4:ptr<function, vec3<f32>, read_write> = var
+    %4:ptr<function, vec3<f32>, read_write> = var undef
     %5:vec3<f32> = load %4
     %6:vec3<f32> = hlsl.frexp %3, %5
     %7:vec3<i32> = hlsl.sign %3
     %8:vec3<f32> = convert %7
-    %9:vec3<f32> = load %4
-    %10:vec3<f32> = mul %8, %9
-    store %4, %10
-    %11:vec3<f32> = load %4
-    %12:vec3<i32> = convert %11
-    %13:__frexp_result_vec3_f32 = construct %6, %12
-    %a:__frexp_result_vec3_f32 = let %13
+    %9:vec3<f32> = mul %8, %6
+    %10:vec3<f32> = load %4
+    %11:vec3<i32> = convert %10
+    %12:__frexp_result_vec3_f32 = construct %9, %11
+    %a:__frexp_result_vec3_f32 = let %12
     ret
   }
 }

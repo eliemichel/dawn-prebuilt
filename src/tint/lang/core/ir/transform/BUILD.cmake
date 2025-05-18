@@ -63,10 +63,13 @@ tint_add_target(tint_lang_core_ir_transform lib
   lang/core/ir/transform/direct_variable_access.h
   lang/core/ir/transform/multiplanar_external_texture.cc
   lang/core/ir/transform/multiplanar_external_texture.h
+  lang/core/ir/transform/multiplanar_options.h
   lang/core/ir/transform/prepare_push_constants.cc
   lang/core/ir/transform/prepare_push_constants.h
   lang/core/ir/transform/preserve_padding.cc
   lang/core/ir/transform/preserve_padding.h
+  lang/core/ir/transform/prevent_infinite_loops.cc
+  lang/core/ir/transform/prevent_infinite_loops.h
   lang/core/ir/transform/remove_continue_in_switch.cc
   lang/core/ir/transform/remove_continue_in_switch.h
   lang/core/ir/transform/remove_terminator_args.cc
@@ -77,12 +80,18 @@ tint_add_target(tint_lang_core_ir_transform lib
   lang/core/ir/transform/robustness.h
   lang/core/ir/transform/shader_io.cc
   lang/core/ir/transform/shader_io.h
+  lang/core/ir/transform/single_entry_point.cc
+  lang/core/ir/transform/single_entry_point.h
   lang/core/ir/transform/std140.cc
   lang/core/ir/transform/std140.h
+  lang/core/ir/transform/substitute_overrides.cc
+  lang/core/ir/transform/substitute_overrides.h
   lang/core/ir/transform/value_to_let.cc
   lang/core/ir/transform/value_to_let.h
   lang/core/ir/transform/vectorize_scalar_matrix_constructors.cc
   lang/core/ir/transform/vectorize_scalar_matrix_constructors.h
+  lang/core/ir/transform/vertex_pulling.cc
+  lang/core/ir/transform/vertex_pulling.h
   lang/core/ir/transform/zero_init_workgroup_memory.cc
   lang/core/ir/transform/zero_init_workgroup_memory.h
 )
@@ -90,24 +99,22 @@ tint_add_target(tint_lang_core_ir_transform lib
 tint_target_add_dependencies(tint_lang_core_ir_transform lib
   tint_api_common
   tint_lang_core
-  tint_lang_core_common
   tint_lang_core_constant
   tint_lang_core_intrinsic
   tint_lang_core_ir
+  tint_lang_core_ir_analysis
+  tint_lang_core_ir_type
   tint_lang_core_type
+  tint_utils
   tint_utils_containers
   tint_utils_diagnostic
   tint_utils_ice
-  tint_utils_id
   tint_utils_macros
   tint_utils_math
   tint_utils_memory
-  tint_utils_reflection
-  tint_utils_result
   tint_utils_rtti
   tint_utils_symbol
   tint_utils_text
-  tint_utils_traits
 )
 
 tint_target_add_external_dependencies(tint_lang_core_ir_transform lib
@@ -134,71 +141,45 @@ tint_add_target(tint_lang_core_ir_transform_test test
   lang/core/ir/transform/multiplanar_external_texture_test.cc
   lang/core/ir/transform/prepare_push_constants_test.cc
   lang/core/ir/transform/preserve_padding_test.cc
+  lang/core/ir/transform/prevent_infinite_loops_test.cc
   lang/core/ir/transform/remove_continue_in_switch_test.cc
   lang/core/ir/transform/remove_terminator_args_test.cc
   lang/core/ir/transform/rename_conflicts_test.cc
   lang/core/ir/transform/robustness_test.cc
+  lang/core/ir/transform/single_entry_point_test.cc
   lang/core/ir/transform/std140_test.cc
+  lang/core/ir/transform/substitute_overrides_test.cc
   lang/core/ir/transform/value_to_let_test.cc
   lang/core/ir/transform/vectorize_scalar_matrix_constructors_test.cc
+  lang/core/ir/transform/vertex_pulling_test.cc
   lang/core/ir/transform/zero_init_workgroup_memory_test.cc
 )
 
 tint_target_add_dependencies(tint_lang_core_ir_transform_test test
   tint_api_common
   tint_lang_core
-  tint_lang_core_common
   tint_lang_core_constant
   tint_lang_core_intrinsic
   tint_lang_core_ir
   tint_lang_core_ir_transform
+  tint_lang_core_ir_type
   tint_lang_core_type
-  tint_lang_wgsl
-  tint_lang_wgsl_ast
-  tint_lang_wgsl_common
-  tint_lang_wgsl_features
-  tint_lang_wgsl_program
-  tint_lang_wgsl_sem
-  tint_lang_wgsl_writer_ir_to_program
-  tint_lang_wgsl_writer_raise
+  tint_utils
   tint_utils_containers
   tint_utils_diagnostic
   tint_utils_ice
-  tint_utils_id
   tint_utils_macros
   tint_utils_math
   tint_utils_memory
-  tint_utils_reflection
-  tint_utils_result
   tint_utils_rtti
   tint_utils_symbol
   tint_utils_text
-  tint_utils_traits
 )
 
 tint_target_add_external_dependencies(tint_lang_core_ir_transform_test test
   "gtest"
   "src_utils"
 )
-
-if(TINT_BUILD_WGSL_READER)
-  tint_target_add_dependencies(tint_lang_core_ir_transform_test test
-    tint_lang_wgsl_reader
-    tint_lang_wgsl_reader_program_to_ir
-  )
-endif(TINT_BUILD_WGSL_READER)
-
-if(TINT_BUILD_WGSL_READER AND TINT_BUILD_WGSL_WRITER)
-  tint_target_add_sources(tint_lang_core_ir_transform_test test
-    "lang/core/ir/transform/direct_variable_access_wgsl_test.cc"
-  )
-endif(TINT_BUILD_WGSL_READER AND TINT_BUILD_WGSL_WRITER)
-
-if(TINT_BUILD_WGSL_WRITER)
-  tint_target_add_dependencies(tint_lang_core_ir_transform_test test
-    tint_lang_wgsl_writer
-  )
-endif(TINT_BUILD_WGSL_WRITER)
 
 ################################################################################
 # Target:    tint_lang_core_ir_transform_fuzz
@@ -222,6 +203,7 @@ tint_add_target(tint_lang_core_ir_transform_fuzz fuzz
   lang/core/ir/transform/rename_conflicts_fuzz.cc
   lang/core/ir/transform/robustness_fuzz.cc
   lang/core/ir/transform/std140_fuzz.cc
+  lang/core/ir/transform/substitute_overrides_fuzz.cc
   lang/core/ir/transform/value_to_let_fuzz.cc
   lang/core/ir/transform/vectorize_scalar_matrix_constructors_fuzz.cc
   lang/core/ir/transform/zero_init_workgroup_memory_fuzz.cc
@@ -231,25 +213,21 @@ tint_target_add_dependencies(tint_lang_core_ir_transform_fuzz fuzz
   tint_api_common
   tint_cmd_fuzz_ir_fuzz
   tint_lang_core
-  tint_lang_core_common
   tint_lang_core_constant
   tint_lang_core_ir
   tint_lang_core_ir_transform
   tint_lang_core_type
+  tint_utils
   tint_utils_bytes
   tint_utils_containers
   tint_utils_diagnostic
   tint_utils_ice
-  tint_utils_id
   tint_utils_macros
   tint_utils_math
   tint_utils_memory
-  tint_utils_reflection
-  tint_utils_result
   tint_utils_rtti
   tint_utils_symbol
   tint_utils_text
-  tint_utils_traits
 )
 
 tint_target_add_external_dependencies(tint_lang_core_ir_transform_fuzz fuzz

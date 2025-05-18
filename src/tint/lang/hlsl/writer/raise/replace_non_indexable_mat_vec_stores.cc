@@ -29,7 +29,6 @@
 
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/validator.h"
-#include "src/tint/utils/result/result.h"
 
 namespace tint::hlsl::writer::raise {
 namespace {
@@ -118,7 +117,7 @@ struct State {
                 // Matrix is in a struct or array, for example
                 matrix = b.Access(ty.ptr(to_ptr->AddressSpace(), mat_ty), to_access->Object(),
                                   ToVector<4>(indicesButLast))
-                             ->Result(0);
+                             ->Result();
             }
             // Switch over dynamic index, emitting a case for all possible column indices
             auto* switch_ = b.Switch(to_access->Indices().Back());
@@ -204,9 +203,9 @@ struct State {
             }
 
             auto* false_val = b.Load(vec_param);
-            auto* true_val = b.Swizzle(vec_ty, value_param, swizzle_indices);
+            auto* true_val = b.Construct(vec_ty, value_param);
 
-            auto* lhs = b.Swizzle(vec_ty, index_param, swizzle_indices);
+            auto* lhs = b.Construct(vec_ty, index_param);
             auto* rhs = b.Construct(vec_ty, select_indices);
             auto* cond = b.Equal(ty.MatchWidth(ty.bool_(), vec_ty), lhs, rhs);
 
@@ -261,8 +260,8 @@ struct State {
         for (auto* inst : ir.Instructions()) {
             // Inline pointers
             if (auto* l = inst->As<core::ir::Let>()) {
-                if (l->Result(0)->Type()->Is<core::type::Pointer>()) {
-                    l->Result(0)->ReplaceAllUsesWith(l->Value());
+                if (l->Result()->Type()->Is<core::type::Pointer>()) {
+                    l->Result()->ReplaceAllUsesWith(l->Value());
                     l->Destroy();
                 }
             }
@@ -287,7 +286,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> ReplaceNonIndexableMatVecStores(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "ReplaceNonIndexableMatVecStores transform");
+    auto result = ValidateAndDumpIfNeeded(ir, "hlsl.ReplaceNonIndexableMatVecStores");
     if (result != Success) {
         return result.Failure();
     }

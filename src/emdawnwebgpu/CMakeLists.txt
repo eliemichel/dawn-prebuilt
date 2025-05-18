@@ -61,7 +61,7 @@ add_custom_target(emdawnwebgpu_js_gen
 # - library_webgpu_enum_tables.js
 # - library_webgpu_generated_sig_info.js
 #   which we generate directly instead of using "gen_sig_info.py"
-if (${DAWN_ENABLE_EMSCRIPTEN})
+if (EMSCRIPTEN)
     set(EM_SRC_DIR "${DAWN_SRC_DIR}/emdawnwebgpu")
     set(EM_BUILD_GEN_DIR "${DAWN_BUILD_GEN_DIR}/src/emdawnwebgpu")
 
@@ -77,8 +77,11 @@ if (${DAWN_ENABLE_EMSCRIPTEN})
                 "${arg_UNPARSED_ARGUMENTS}")
         endif()
 
+        # Note this requires Emscripten 4.0.3+ (prior to that it was located
+        # at tools/maint/gen_struct_info.py).
         set(ARGS
-            "${DAWN_EMSCRIPTEN_TOOLCHAIN}/tools/maint/gen_struct_info.py"
+            ${Python3_EXECUTABLE}
+            "${EMSCRIPTEN_ROOT_PATH}/tools/gen_struct_info.py"
             -q
             "${EM_BUILD_GEN_DIR}/struct_info_webgpu.json"
             "-I=${EM_BUILD_GEN_DIR}/include"
@@ -191,17 +194,20 @@ if (${DAWN_ENABLE_EMSCRIPTEN})
     target_include_directories(emdawnwebgpu_config BEFORE INTERFACE
         "${EM_BUILD_GEN_DIR}/include"
     )
+    add_dependencies(emdawnwebgpu_config webgpu_generated_struct_info_js emdawnwebgpu_js_gen)
     target_link_options(emdawnwebgpu_config INTERFACE
         # We are using Dawn-generated bindings, not built-in ones
         "-sUSE_WEBGPU=0"
-        # We need Asyncify for Future implementation.
-        "-sASYNCIFY=1"
         # The JS libraries needed for bindings
         "--js-library=${EM_BUILD_GEN_DIR}/library_webgpu_enum_tables.js"
         "--js-library=${EM_BUILD_GEN_DIR}/library_webgpu_generated_struct_info.js"
         "--js-library=${EM_BUILD_GEN_DIR}/library_webgpu_generated_sig_info.js"
         "--js-library=${DAWN_EMDAWNWEBGPU_DIR}/library_webgpu.js"
-        "--closure-args=--externs=${DAWN_EMSCRIPTEN_TOOLCHAIN}/src/closure-externs/webgpu-externs.js"
+        "--closure-args=--externs=${EMSCRIPTEN_ROOT_PATH}/src/closure-externs/webgpu-externs.js"
+    )
+    # Relink when library_webgpu.js file changes.
+    set_target_properties(emdawnwebgpu_config PROPERTIES
+        INTERFACE_LINK_DEPENDS "${DAWN_EMDAWNWEBGPU_DIR}/library_webgpu.js"
     )
 
     dawn_add_library(
@@ -220,6 +226,7 @@ if (${DAWN_ENABLE_EMSCRIPTEN})
         ENABLE_EMSCRIPTEN
         HEADER_ONLY
         HEADERS
+            "${EM_BUILD_GEN_DIR}/include/dawn/webgpu_cpp_print.h"
             "${EM_BUILD_GEN_DIR}/include/webgpu/webgpu_cpp.h"
             "${EM_BUILD_GEN_DIR}/include/webgpu/webgpu_cpp_chained_struct.h"
             "${DAWN_INCLUDE_DIR}/webgpu/webgpu_enum_class_bitmasks.h"
@@ -227,4 +234,40 @@ if (${DAWN_ENABLE_EMSCRIPTEN})
             emdawnwebgpu_c
     )
 
+    if (${DAWN_BUILD_TESTS})
+        set(emdawnwebgpu_test_sources
+            "tests/FuturesTests.cpp"
+        )
+        set(emdawnwebgpu_test_deps
+            dawn::dawn_wgpu_utils
+            emdawnwebgpu_cpp
+            gmock_main
+        )
+
+        add_executable(emdawnwebgpu_tests_asyncify ${emdawnwebgpu_test_sources})
+        set_target_properties(emdawnwebgpu_tests_asyncify PROPERTIES
+            SUFFIX ".html")
+        target_link_libraries(
+            emdawnwebgpu_tests_asyncify
+            PUBLIC
+                ${emdawnwebgpu_test_deps}
+        )
+        target_link_options(emdawnwebgpu_tests_asyncify PUBLIC
+            # We need Asyncify or JSPI for Future tests.
+            "-sASYNCIFY=1"
+        )
+
+        add_executable(emdawnwebgpu_tests_jspi ${emdawnwebgpu_test_sources})
+        set_target_properties(emdawnwebgpu_tests_jspi PROPERTIES
+            SUFFIX ".html")
+        target_link_libraries(
+            emdawnwebgpu_tests_jspi
+            PUBLIC
+                ${emdawnwebgpu_test_deps}
+        )
+        target_link_options(emdawnwebgpu_tests_jspi PUBLIC
+            # We need Asyncify or JSPI for Future tests.
+            "-sJSPI=1"
+        )
+    endif()
 endif()

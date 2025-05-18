@@ -97,14 +97,14 @@ TEST_F(RenderPipelineValidationTest, DepthBiasParameterNotBeNaN) {
         device.CreateRenderPipeline(&descriptor);
     }
 
-    // Infinite depth bias clamp is valid
+    // Infinite depth bias clamp is invalid
     {
         utils::ComboRenderPipelineDescriptor descriptor;
         descriptor.vertex.module = vsModule;
         descriptor.cFragment.module = fsModule;
         wgpu::DepthStencilState* depthStencil = descriptor.EnableDepthStencil();
         depthStencil->depthBiasClamp = INFINITY;
-        device.CreateRenderPipeline(&descriptor);
+        ASSERT_DEVICE_ERROR(device.CreateRenderPipeline(&descriptor));
     }
     // NAN depth bias clamp is invalid
     {
@@ -116,14 +116,14 @@ TEST_F(RenderPipelineValidationTest, DepthBiasParameterNotBeNaN) {
         ASSERT_DEVICE_ERROR(device.CreateRenderPipeline(&descriptor));
     }
 
-    // Infinite depth bias slope is valid
+    // Infinite depth bias slope is invalid
     {
         utils::ComboRenderPipelineDescriptor descriptor;
         descriptor.vertex.module = vsModule;
         descriptor.cFragment.module = fsModule;
         wgpu::DepthStencilState* depthStencil = descriptor.EnableDepthStencil();
         depthStencil->depthBiasSlopeScale = INFINITY;
-        device.CreateRenderPipeline(&descriptor);
+        ASSERT_DEVICE_ERROR(device.CreateRenderPipeline(&descriptor));
     }
     // NAN depth bias slope is invalid
     {
@@ -537,30 +537,6 @@ class Float32BlendableValidationTest : public RenderPipelineValidationTest {
 
 // Tests that the float32 color formats are blendable only with the float32-blendable feature.
 TEST_F(Float32BlendableValidationTest, Float32BlendableFormatsWithFeatureEnabled) {
-    for (const auto f32Format : {wgpu::TextureFormat::R32Float, wgpu::TextureFormat::RG32Float,
-                                 wgpu::TextureFormat::RGBA32Float}) {
-        utils::ComboRenderPipelineDescriptor descriptor;
-        descriptor.vertex.module = vsModule;
-        descriptor.cFragment.module = fsModule;
-        descriptor.cTargets[0].blend = &descriptor.cBlends[0];
-        descriptor.cTargets[0].format = f32Format;
-
-        device.CreateRenderPipeline(&descriptor);
-    }
-}
-
-class Float32FilterableValidationTest : public RenderPipelineValidationTest {
-  protected:
-    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
-        return {wgpu::FeatureName::Float32Filterable};
-    }
-};
-
-// TODO(crbug.com/364987733): Remove this test once float filterable texture types
-// are not considered blendable.
-// Tests that blending a float32 color formats without the float32-blendable feature
-// is still valid with the float32-filterable feature.
-TEST_F(Float32FilterableValidationTest, Float32BlendableFormatsWithoutFeature) {
     for (const auto f32Format : {wgpu::TextureFormat::R32Float, wgpu::TextureFormat::RG32Float,
                                  wgpu::TextureFormat::RGBA32Float}) {
         utils::ComboRenderPipelineDescriptor descriptor;
@@ -2054,6 +2030,51 @@ TEST_F(RenderPipelineValidationTest, PointLineDepthBias) {
     }
 }
 
+// Regression test for 377530684 where we try to access the current pipeline in
+// CommandBufferStateTracker even after the pass is ended because a validation failure in End() made
+// the RenderPass only partially closed, and further commands could keep pass the TryEncode
+// validation.
+TEST_F(RenderPipelineValidationTest, DrawAfterEndShouldNotAccessPipeline) {
+    // A pipeline and texture used for rendering.
+    utils::ComboRenderPipelineDescriptor pDesc;
+    pDesc.vertex.module = vsModule;
+    pDesc.cFragment.module = fsModule;
+    pDesc.cFragment.targetCount = 1;
+    pDesc.cTargets[0].format = wgpu::TextureFormat::RGBA8Unorm;
+    wgpu::RenderPipeline pipeline = device.CreateRenderPipeline(&pDesc);
+
+    wgpu::TextureDescriptor tDesc;
+    tDesc.format = wgpu::TextureFormat::RGBA8Unorm;
+    tDesc.size = {1, 1};
+    tDesc.usage = wgpu::TextureUsage::RenderAttachment;
+    wgpu::Texture texture = device.CreateTexture(&tDesc);
+
+    // The issue was found with DrawIndirect that gets the currently bound pipeline to know if
+    // vertex duplication is necessary.
+    wgpu::BufferDescriptor bDesc;
+    bDesc.size = 64;
+    bDesc.usage = wgpu::BufferUsage::Indirect;
+    wgpu::Buffer buffer = device.CreateBuffer(&bDesc);
+
+    // Cause an End() validation failure with maxDrawCount
+    utils::ComboRenderPassDescriptor rpDesc{{texture.CreateView()}};
+    wgpu::RenderPassMaxDrawCount maxDrawCount;
+    maxDrawCount.maxDrawCount = 1;
+    rpDesc.nextInChain = &maxDrawCount;
+
+    wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
+    wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&rpDesc);
+    pass.SetPipeline(pipeline);
+    pass.DrawIndirect(buffer, 0);
+    pass.DrawIndirect(buffer, 0);
+    pass.End();
+
+    // This call shouldn't access any CommandBufferStateTracker state but prior to the fix, it would
+    // and cause an ASSERT() to trigger.
+    pass.DrawIndirect(buffer, 0);
+    ASSERT_DEVICE_ERROR(encoder.Finish());
+}
+
 class DepthClipControlValidationTest : public RenderPipelineValidationTest {
   protected:
     std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
@@ -2988,10 +3009,10 @@ TEST_F(DualSourceBlendingFeatureTest, FeatureEnumsValidWithFeatureEnabled) {
 // Test that rendering to multiple render targets while using dual source blending results in an
 // error.
 TEST_F(DualSourceBlendingFeatureTest, MultipleRenderTargetsNotAllowed) {
-    wgpu::SupportedLimits limits;
+    wgpu::Limits limits;
     device.GetLimits(&limits);
 
-    for (uint32_t location = 1; location < limits.limits.maxColorAttachments; location++) {
+    for (uint32_t location = 1; location < limits.maxColorAttachments; location++) {
         std::ostringstream sstream;
         sstream << R"(
                 enable dual_source_blending;

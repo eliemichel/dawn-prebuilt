@@ -27,8 +27,6 @@
 
 #include "src/tint/lang/msl/writer/raise/simd_ballot.h"
 
-#include <utility>
-
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/referenced_module_vars.h"
 #include "src/tint/lang/core/ir/validator.h"
@@ -73,7 +71,7 @@ struct State {
                                                                   return var == subgroup_size_mask;
                                                               });
         for (auto func : ir.functions) {
-            if (func->Stage() != core::ir::Function::PipelineStage::kUndefined) {
+            if (func->IsEntryPoint()) {
                 if (refs.TransitiveReferences(func).Contains(subgroup_size_mask)) {
                     SetSubgroupSizeMaskForEntryPoint(func);
                 }
@@ -160,7 +158,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> SimdBallot(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "SimdBallot transform");
+    auto result = ValidateAndDumpIfNeeded(ir, "msl.SimdBallot");
     if (result != Success) {
         return result.Failure();
     }

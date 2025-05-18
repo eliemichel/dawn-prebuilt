@@ -31,6 +31,7 @@
 #include <functional>
 
 #include "dawn/common/NonCopyable.h"
+#include "dawn/native/BindingInfo.h"
 #include "dawn/native/IntegerTypes.h"
 #include "dawn/native/stream/Stream.h"
 
@@ -43,18 +44,7 @@ class PipelineLayoutBase;
 struct ProgrammableStage;
 class RenderPipelineBase;
 
-// Indicates that for the lifetime of this object tint internal compiler errors should be
-// reported to the given device.
-class ScopedTintICEHandler : public NonCopyable {
-  public:
-    explicit ScopedTintICEHandler(DeviceBase* device);
-    ~ScopedTintICEHandler();
-
-  private:
-    ScopedTintICEHandler(ScopedTintICEHandler&&) = delete;
-};
-
-tint::ast::transform::VertexPulling::Config BuildVertexPullingTransformConfig(
+tint::VertexPullingConfig BuildVertexPullingTransformConfig(
     const RenderPipelineBase& renderPipeline,
     BindGroupIndex pullingBufferBindingSet);
 
@@ -78,6 +68,14 @@ class stream::Stream<T, std::enable_if_t<tint::HasReflection<T>>> {
         return error;
     }
 };
+
+constexpr tint::BindingPoint ToTint(const BindingSlot& slot) {
+    return {static_cast<uint32_t>(slot.group), static_cast<uint32_t>(slot.binding)};
+}
+
+constexpr BindingSlot FromTint(const tint::BindingPoint& tintBindingPoint) {
+    return {BindGroupIndex(tintBindingPoint.group), BindingNumber(tintBindingPoint.binding)};
+}
 
 }  // namespace dawn::native
 

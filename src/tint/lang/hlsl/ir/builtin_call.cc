@@ -49,9 +49,13 @@ BuiltinCall::BuiltinCall(Id id,
 BuiltinCall::~BuiltinCall() = default;
 
 BuiltinCall* BuiltinCall::Clone(core::ir::CloneContext& ctx) {
-    auto* new_result = ctx.Clone(Result(0));
+    auto* new_result = ctx.Clone(Result());
     auto new_args = ctx.Clone<BuiltinCall::kDefaultNumOperands>(Args());
     return ctx.ir.CreateInstruction<BuiltinCall>(new_result, func_, new_args);
+}
+
+tint::core::ir::Instruction::Accesses BuiltinCall::GetSideEffects() const {
+    return tint::hlsl::GetSideEffects(func_);
 }
 
 }  // namespace tint::hlsl::ir

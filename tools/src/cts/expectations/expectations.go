@@ -35,10 +35,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 
+	"dawn.googlesource.com/dawn/tools/src/container"
+	"dawn.googlesource.com/dawn/tools/src/cts/query"
 	"dawn.googlesource.com/dawn/tools/src/cts/result"
+	"dawn.googlesource.com/dawn/tools/src/reducedglob"
 )
 
 // Content holds the full content of an expectations file.
@@ -55,14 +59,25 @@ type Chunk struct {
 	Expectations Expectations // Expectations for the chunk
 }
 
+// Type + enum for whether an Expectation's Query contains globs or not.
+type ExpectationType int
+
+const (
+	UNDETERMINED ExpectationType = iota
+	EXACT
+	GLOB
+)
+
 // Expectation holds a single expectation line
 type Expectation struct {
-	Line    int         // The 1-based line number of the expectation
-	Bug     string      // The associated bug URL for this expectation
-	Tags    result.Tags // Tags used to filter the expectation
-	Query   string      // The CTS query
-	Status  []string    // The expected result status
-	Comment string      // Optional comment at end of line
+	Line            int                      // The 1-based line number of the expectation
+	Bug             string                   // The associated bug URL for this expectation
+	Tags            result.Tags              // Tags used to filter the expectation
+	Query           string                   // The CTS query
+	Status          []string                 // The expected result status
+	Comment         string                   // Optional comment at end of line
+	expectationType ExpectationType          // Cached value of whether |Query| is an exact match or not
+	globMatcher     *reducedglob.ReducedGlob // Cached matcher for the case where expectationType == GLOB
 }
 
 // Expectations are a list of Expectation
@@ -142,6 +157,55 @@ func (c *Content) Format() {
 	}
 }
 
+// RemoveExpectationsForUnknownTests modifies the Content in place so that all
+// contained Expectations apply to tests in the given testlist.
+func (c *Content) RemoveExpectationsForUnknownTests(testlist *[]query.Query) error {
+	// Converting into a set allows us to much more efficiently check if a
+	// non-wildcard expectation is for a valid test.
+	knownTestNames := container.NewSet[string]()
+	for _, testQuery := range *testlist {
+		knownTestNames.Add(testQuery.ExpectationFileString())
+	}
+
+	prunedChunkSlice := make([]Chunk, 0)
+	for _, chunk := range c.Chunks {
+		prunedChunk := chunk.Clone()
+		// If we don't have any expectations already, just add the chunk back
+		// immediately to avoid removing comments, especially the header.
+		if prunedChunk.IsCommentOnly() {
+			prunedChunkSlice = append(prunedChunkSlice, prunedChunk)
+			continue
+		}
+
+		prunedChunk.Expectations = make(Expectations, 0)
+		for _, expectation := range chunk.Expectations {
+			// We don't actually parse the query string into a Query since wildcards
+			// are treated differently between expectations and CTS queries.
+			if expectation.IsGlobExpectation() {
+				for testName := range knownTestNames {
+					if expectation.AppliesToTest(testName) {
+						prunedChunk.Expectations = append(prunedChunk.Expectations, expectation)
+						break
+					}
+				}
+			} else {
+				// We could technically use AppliesToTest() here like we do for glob
+				// expectations, but Contains() will be faster due to use of a set.
+				if knownTestNames.Contains(expectation.Query) {
+					prunedChunk.Expectations = append(prunedChunk.Expectations, expectation)
+				}
+			}
+		}
+
+		if len(prunedChunk.Expectations) > 0 {
+			prunedChunkSlice = append(prunedChunkSlice, prunedChunk)
+		}
+	}
+
+	c.Chunks = prunedChunkSlice
+	return nil
+}
+
 // IsCommentOnly returns true if the Chunk contains comments and no expectations.
 func (c Chunk) IsCommentOnly() bool {
 	return len(c.Comments) > 0 && len(c.Expectations) == 0
@@ -158,6 +222,73 @@ func (c Chunk) Clone() Chunk {
 		expectations[i] = e.Clone()
 	}
 	return Chunk{comments, expectations}
+}
+
+func (c Chunk) ContainedWithinList(chunkList *[]Chunk) bool {
+	for _, otherChunk := range *chunkList {
+		if reflect.DeepEqual(c, otherChunk) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsGlobExpectation returns whether the Expectation is a glob expectation or
+// not. Glob-iness is cached after the first call.
+func (e *Expectation) IsGlobExpectation() bool {
+	if e.expectationType != UNDETERMINED {
+		return e.expectationType == GLOB
+	}
+
+	// Count the total number of escaped and unescaped wildcard characters. If
+	// they do not match, then that means we have at least one glob, which means
+	// this is a glob expectation.
+	numEscapedWildcards := strings.Count(e.Query, reducedglob.ESCAPED_WILDCARD)
+	numNonEscapedWildcards := strings.Count(e.Query, reducedglob.UNESCAPED_WILDCARD)
+	if numEscapedWildcards == numNonEscapedWildcards {
+		e.expectationType = EXACT
+		return false
+	}
+	e.expectationType = GLOB
+	return true
+}
+
+// ensureGlobMatcherIsSet creates and caches a reducedglob.ReducedGlob for the
+// Expectation's Query field. Should only be called in cases where
+// IsGlobExpectation() returns true.
+func (e *Expectation) ensureGlobMatcherIsSet() {
+	if e.globMatcher != nil {
+		return
+	}
+	if e.expectationType != GLOB {
+		panic("ensureGlobMatcherIsSet should only be ever be called when the for glob expectations")
+	}
+	e.globMatcher = reducedglob.NewReducedGlob(e.Query)
+}
+
+// AppliesToResult returns whether the Expectation applies to the test + config
+// represented by the Result.
+func (e Expectation) AppliesToResult(r result.Result) bool {
+	// Tags apply as long as the Expectation's tags are a subset of the Result's
+	// tags.
+	tagsApply := r.Tags.ContainsAll(e.Tags)
+	queryApplies := e.AppliesToTest(r.Query.ExpectationFileString())
+
+	return tagsApply && queryApplies
+}
+
+// AppliesToTest returns whether the Expectation applies to the test |name|.
+// This does NOT take into account the tags contained within the Expectation,
+// only whether the name matches.
+func (e Expectation) AppliesToTest(name string) bool {
+	// The query is a glob expectation, we need to perform a more complex
+	// comparison. Otherwise, we can just check for an exact match.
+	if e.IsGlobExpectation() {
+		e.ensureGlobMatcherIsSet()
+		return e.globMatcher.Matchcase(name)
+	} else {
+		return e.Query == name
+	}
 }
 
 // AsExpectationFileString returns the human-readable form of the expectation

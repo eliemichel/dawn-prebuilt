@@ -32,14 +32,14 @@
 #include "dawn/native/ChainUtils.h"
 #include "dawn/native/Device.h"
 #include "dawn/native/ObjectContentHasher.h"
+#include "dawn/native/ValidationUtils.h"
 #include "dawn/native/ValidationUtils_autogen.h"
 
 namespace dawn::native {
 
 MaybeError ValidateSamplerDescriptor(DeviceBase* device, const SamplerDescriptor* descriptor) {
-    DAWN_INVALID_IF(std::isnan(descriptor->lodMinClamp) || std::isnan(descriptor->lodMaxClamp),
-                    "LOD clamp bounds [%f, %f] contain a NaN.", descriptor->lodMinClamp,
-                    descriptor->lodMaxClamp);
+    DAWN_TRY(ValidateFloat("lodMinClamp", descriptor->lodMinClamp));
+    DAWN_TRY(ValidateFloat("lodMaxClamp", descriptor->lodMaxClamp));
 
     DAWN_INVALID_IF(descriptor->lodMinClamp < 0 || descriptor->lodMaxClamp < 0,
                     "LOD clamp bounds [%f, %f] contain contain a negative number.",
@@ -55,7 +55,7 @@ MaybeError ValidateSamplerDescriptor(DeviceBase* device, const SamplerDescriptor
                             descriptor->mipmapFilter != wgpu::MipmapFilterMode::Linear,
                         "One of minFilter (%s), magFilter (%s) or mipmapFilter (%s) is not %s "
                         "while using anisotropic filter (maxAnisotropy is %f)",
-                        descriptor->magFilter, descriptor->minFilter, descriptor->mipmapFilter,
+                        descriptor->minFilter, descriptor->magFilter, descriptor->mipmapFilter,
                         wgpu::FilterMode::Linear, descriptor->maxAnisotropy);
     } else if (descriptor->maxAnisotropy == 0u) {
         return DAWN_VALIDATION_ERROR("Max anisotropy (%f) is less than 1.",
@@ -97,7 +97,7 @@ SamplerBase::SamplerBase(DeviceBase* device,
       mMaxAnisotropy(descriptor->maxAnisotropy) {
     if (auto* yCbCrVkDescriptor = Unpack(descriptor).Get<YCbCrVkDescriptor>()) {
         mIsYCbCr = true;
-        mYCbCrVkDescriptor = *yCbCrVkDescriptor;
+        mYCbCrVkDescriptor = yCbCrVkDescriptor->WithTrivialFrontendDefaults();
         mYCbCrVkDescriptor.nextInChain = nullptr;
     }
 }
@@ -136,6 +136,11 @@ bool SamplerBase::IsFiltering() const {
 
 bool SamplerBase::IsYCbCr() const {
     return mIsYCbCr;
+}
+
+YCbCrVkDescriptor SamplerBase::GetYCbCrVkDescriptor() const {
+    DAWN_ASSERT(IsYCbCr());
+    return mYCbCrVkDescriptor;
 }
 
 size_t SamplerBase::ComputeContentHash() {

@@ -506,6 +506,10 @@ config("common_config") {
       "-Wno-deprecated-enum-enum-conversion",
       "-Wno-deprecated-anon-enum-enum-conversion",
       "-Wno-ambiguous-reversed-operator",
+
+      # TODO(crbug.com/392929926): Remove invalid specializations of
+      # is_nothrow_constructible.
+      "-Wno-invalid-specialization",
     ]
   } else {
     # MSVC
@@ -1447,6 +1451,7 @@ dxcompiler_sourceset("lib_dxilpixpasses") {
     "$dawn_dxc_dir/lib/DxilPIXPasses/DxilDbgValueToDbgDeclare.cpp",
     "$dawn_dxc_dir/lib/DxilPIXPasses/DxilDebugInstrumentation.cpp",
     "$dawn_dxc_dir/lib/DxilPIXPasses/DxilForceEarlyZ.cpp",
+    "$dawn_dxc_dir/lib/DxilPIXPasses/DxilNonUniformResourceIndexInstrumentation.cpp",
     "$dawn_dxc_dir/lib/DxilPIXPasses/DxilOutputColorBecomesConstant.cpp",
     "$dawn_dxc_dir/lib/DxilPIXPasses/DxilPIXAddTidToAmplificationShaderPayload.cpp",
     "$dawn_dxc_dir/lib/DxilPIXPasses/DxilPIXDXRInvocationsLog.cpp",
@@ -1513,6 +1518,7 @@ dxcompiler_sourceset("lib_hlsl") {
     "$dawn_dxc_dir/lib/HLSL/DxilPreserveAllOutputs.cpp",
     "$dawn_dxc_dir/lib/HLSL/DxilPromoteResourcePasses.cpp",
     "$dawn_dxc_dir/lib/HLSL/DxilRenameResourcesPass.cpp",
+    "$dawn_dxc_dir/lib/HLSL/DxilScalarizeVectorLoadStores.cpp",
     "$dawn_dxc_dir/lib/HLSL/DxilSignatureValidation.cpp",
     "$dawn_dxc_dir/lib/HLSL/DxilSimpleGVNHoist.cpp",
     "$dawn_dxc_dir/lib/HLSL/DxilTargetLowering.cpp",
@@ -2323,7 +2329,7 @@ source_set("windows_version_resource") {
   sources = [ "$dawn_dxc_dir/resources/windows_version_resource.rc" ]
 }
 
-loadable_module("dxcompiler") {
+shared_library("dxcompiler") {
   if (dawn_has_build) {
     configs -= [ "//build/config/compiler:chromium_code" ]
     configs += [ "//build/config/compiler:no_chromium_code" ]

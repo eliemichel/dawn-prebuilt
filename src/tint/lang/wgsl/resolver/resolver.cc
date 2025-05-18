@@ -26,11 +26,8 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "src/tint/lang/wgsl/resolver/resolver.h"
-#include <iostream>
 
 #include <algorithm>
-#include <cmath>
-#include <iomanip>
 #include <limits>
 #include <string_view>
 #include <utility>
@@ -43,6 +40,7 @@
 #include "src/tint/lang/core/type/abstract_int.h"
 #include "src/tint/lang/core/type/array.h"
 #include "src/tint/lang/core/type/atomic.h"
+#include "src/tint/lang/core/type/binding_array.h"
 #include "src/tint/lang/core/type/builtin_structs.h"
 #include "src/tint/lang/core/type/depth_multisampled_texture.h"
 #include "src/tint/lang/core/type/depth_texture.h"
@@ -105,10 +103,10 @@
 #include "src/tint/lang/wgsl/sem/value_conversion.h"
 #include "src/tint/lang/wgsl/sem/variable.h"
 #include "src/tint/lang/wgsl/sem/while_statement.h"
-#include "src/tint/utils/constants/internal_limits.h"
 #include "src/tint/utils/containers/reverse.h"
 #include "src/tint/utils/containers/transform.h"
 #include "src/tint/utils/containers/vector.h"
+#include "src/tint/utils/internal_limits.h"
 #include "src/tint/utils/macros/compiler.h"
 #include "src/tint/utils/macros/defer.h"
 #include "src/tint/utils/macros/scoped_assignment.h"
@@ -575,9 +573,8 @@ sem::Variable* Resolver::Var(const ast::Var* var, bool is_global) {
             sem->SetAddressSpace(core::AddressSpace::kFunction);
         } else if (storage_ty->UnwrapRef()->IsHandle()) {
             // https://gpuweb.github.io/gpuweb/wgsl/#module-scope-variables
-            // If the store type is a texture type or a sampler type, then the
-            // variable declaration must not have a address space attribute. The
-            // address space will always be handle.
+            // If the store type is a handle type, then the variable declaration must not have a
+            // address space attribute. The address space will always be handle.
             sem->SetAddressSpace(core::AddressSpace::kHandle);
         }
     }
@@ -785,32 +782,6 @@ sem::Parameter* Resolver::Parameter(const ast::Parameter* param,
                 },
                 [&](const ast::InterpolateAttribute*) { return true; },
                 [&](const ast::InternalAttribute* attr) -> bool { return InternalAttribute(attr); },
-                [&](const ast::GroupAttribute* attr) {
-                    if (validator_.IsValidationEnabled(
-                            param->attributes, ast::DisabledValidation::kEntryPointParameter)) {
-                        ErrorInvalidAttribute(attribute, StyledText{} << "function parameters");
-                        return false;
-                    }
-                    auto value = GroupAttribute(attr);
-                    if (DAWN_UNLIKELY(value != Success)) {
-                        return false;
-                    }
-                    group = value.Get();
-                    return true;
-                },
-                [&](const ast::BindingAttribute* attr) -> bool {
-                    if (validator_.IsValidationEnabled(
-                            param->attributes, ast::DisabledValidation::kEntryPointParameter)) {
-                        ErrorInvalidAttribute(attribute, StyledText{} << "function parameters");
-                        return false;
-                    }
-                    auto value = BindingAttribute(attr);
-                    if (DAWN_UNLIKELY(value != Success)) {
-                        return false;
-                    }
-                    binding = value.Get();
-                    return true;
-                },
                 [&](Default) {
                     ErrorInvalidAttribute(attribute, StyledText{} << "function parameters");
                     return false;
@@ -848,7 +819,7 @@ sem::Parameter* Resolver::Parameter(const ast::Parameter* param,
         return nullptr;
     }
 
-    core::type::Type* ty = Type(param->type);
+    const core::type::Type* ty = Type(param->type);
     if (DAWN_UNLIKELY(!ty)) {
         return nullptr;
     }
@@ -1078,7 +1049,7 @@ sem::Function* Resolver::Function(const ast::Function* decl) {
     }
 
     // Resolve the return type
-    core::type::Type* return_type = nullptr;
+    const core::type::Type* return_type = nullptr;
     if (auto ty = decl->return_type) {
         return_type = Type(ty);
         if (!return_type) {
@@ -1092,9 +1063,7 @@ sem::Function* Resolver::Function(const ast::Function* decl) {
     if (decl->IsEntryPoint()) {
         // Determine if the return type has a location
         bool permissive = validator_.IsValidationDisabled(
-                              decl->attributes, ast::DisabledValidation::kEntryPointParameter) ||
-                          validator_.IsValidationDisabled(
-                              decl->attributes, ast::DisabledValidation::kFunctionParameter);
+            decl->attributes, ast::DisabledValidation::kFunctionParameter);
         for (auto* attribute : decl->return_type_attributes) {
             Mark(attribute);
             enum Status { kSuccess, kErrored, kInvalid };
@@ -1167,7 +1136,7 @@ sem::Function* Resolver::Function(const ast::Function* decl) {
         }
     }
 
-    if (auto* str = return_type->As<core::type::Struct>()) {
+    if (auto* str = const_cast<core::type::Struct*>(return_type->As<core::type::Struct>())) {
         if (!ApplyAddressSpaceUsageToType(core::AddressSpace::kUndefined, str,
                                           decl->return_type->source)) {
             AddNote(decl->return_type->source)
@@ -1228,12 +1197,13 @@ sem::Function* Resolver::Function(const ast::Function* decl) {
         return nullptr;
     }
 
-    // If this is an entry point, mark all transitively called functions as being
-    // used by this entry point.
+    // If this is an entry point, mark all transitively called functions as being in its call graph.
     if (decl->IsEntryPoint()) {
         for (auto* f : func->TransitivelyCalledFunctions()) {
-            const_cast<sem::Function*>(f)->AddAncestorEntryPoint(func);
+            const_cast<sem::Function*>(f)->AddCallGraphEntryPoint(func);
         }
+        // An entry point is considered to be in its own call graph.
+        func->AddCallGraphEntryPoint(func);
     }
 
     return func;
@@ -1627,7 +1597,7 @@ sem::FunctionExpression* Resolver::FunctionExpression(const ast::Expression* exp
     return sem_.AsFunctionExpression(Expression(expr));
 }
 
-core::type::Type* Resolver::Type(const ast::Expression* ast) {
+const core::type::Type* Resolver::Type(const ast::Expression* ast) {
     Vector<const sem::GlobalVariable*, 4> referenced_overrides;
     on_transitively_reference_global_.Push([&](const sem::GlobalVariable* ref) {
         if (ref->Declaration()->Is<ast::Override>()) {
@@ -1706,10 +1676,6 @@ void Resolver::RegisterLoad(const sem::ValueExpression* expr) {
 bool Resolver::AliasAnalysis(const sem::Call* call) {
     auto* target = call->Target()->As<sem::Function>();
     if (!target) {
-        return true;
-    }
-    if (validator_.IsValidationDisabled(target->Declaration()->attributes,
-                                        ast::DisabledValidation::kIgnorePointerAliasing)) {
         return true;
     }
 
@@ -1950,7 +1916,7 @@ bool Resolver::MaybeMaterializeAndLoadArguments(Vector<const sem::ValueExpressio
 
 bool Resolver::ShouldMaterializeArgument(const core::type::Type* parameter_ty) const {
     const auto* param_el_ty = parameter_ty->DeepestElement();
-    return param_el_ty && !param_el_ty->Is<core::type::AbstractNumeric>();
+    return (param_el_ty != nullptr) && !param_el_ty->Is<core::type::AbstractNumeric>();
 }
 
 bool Resolver::Convert(const core::constant::Value*& c,
@@ -2015,7 +1981,8 @@ sem::ValueExpression* Resolver::IndexAccessor(const ast::IndexAccessorExpression
     const core::type::Type* storage_ty = object_ty->UnwrapRef();
     if (memory_view) {
         if (memory_view->Is<core::type::Pointer>() &&
-            !allowed_features_.features.count(wgsl::LanguageFeature::kPointerCompositeAccess)) {
+            (allowed_features_.features.count(wgsl::LanguageFeature::kPointerCompositeAccess) ==
+             0u)) {
             AddError(expr->source)
                 << "pointer composite access requires the pointer_composite_access language "
                    "feature, which is not allowed in the current environment";
@@ -2027,6 +1994,7 @@ sem::ValueExpression* Resolver::IndexAccessor(const ast::IndexAccessorExpression
     auto* ty = Switch(
         storage_ty,  //
         [&](const sem::Array* arr) { return arr->ElemType(); },
+        [&](const core::type::BindingArray* arr) { return arr->ElemType(); },
         [&](const core::type::Vector* vec) { return vec->Type(); },
         [&](const core::type::Matrix* mat) {
             return b.create<core::type::Vector>(mat->Type(), mat->Rows());
@@ -2173,6 +2141,10 @@ sem::Call* Resolver::Call(const ast::CallExpression* expr) {
                                const sem::CallTarget* call_target) -> sem::Call* {
         auto stage = args_stage;                       // The evaluation stage of the call
         const core::constant::Value* value = nullptr;  // The constant value for the call
+        if (subgroup_matrix_uses_.Contains(ty)) {
+            // Composites that contain subgroup matrices cannot be evaluated until runtime.
+            stage = core::EvaluationStage::kRuntime;
+        }
         if (not_evaluated_.Contains(expr)) {
             stage = core::EvaluationStage::kNotEvaluated;
         }
@@ -2213,10 +2185,6 @@ sem::Call* Resolver::Call(const ast::CallExpression* expr) {
             [&](const core::type::F32*) { return ctor_or_conv(CtorConvIntrinsic::kF32, Empty); },
             [&](const core::type::Bool*) { return ctor_or_conv(CtorConvIntrinsic::kBool, Empty); },
             [&](const core::type::Vector* v) {
-                if (v->Packed()) {
-                    TINT_ASSERT(v->Width() == 3u);
-                    return ctor_or_conv(CtorConvIntrinsic::kPackedVec3, Vector{v->Type()});
-                }
                 return ctor_or_conv(wgsl::intrinsic::VectorCtorConv(v->Width()), Vector{v->Type()});
             },
             [&](const core::type::Matrix* m) {
@@ -2269,6 +2237,36 @@ sem::Call* Resolver::Call(const ast::CallExpression* expr) {
                 }
 
                 return arr_or_str_init(str, call_target);
+            },
+            [&](const core::type::SubgroupMatrix* m) -> sem::Call* {
+                auto* call_target = subgroup_matrix_ctors_.GetOrAdd(
+                    SubgroupMatrixConstructorSig{{m, args.Length()}},
+                    [&]() -> sem::ValueConstructor* {
+                        auto params = tint::Transform(args, [&](auto, size_t i) {
+                            return b.create<sem::Parameter>(nullptr,  // declaration
+                                                            static_cast<uint32_t>(i),  // index
+                                                            m->Type());
+                        });
+                        return b.create<sem::ValueConstructor>(m, std::move(params),
+                                                               core::EvaluationStage::kRuntime);
+                    });
+
+                if (DAWN_UNLIKELY(!MaybeMaterializeAndLoadArguments(args, call_target))) {
+                    return nullptr;
+                }
+
+                if (DAWN_UNLIKELY(!validator_.SubgroupMatrixConstructor(expr, m))) {
+                    return nullptr;
+                }
+
+                // Subgroup matrix constructors are never const-evaluated.
+                auto stage = core::EvaluationStage::kRuntime;
+                if (not_evaluated_.Contains(expr)) {
+                    stage = core::EvaluationStage::kNotEvaluated;
+                }
+
+                return b.create<sem::Call>(expr, call_target, stage, std::move(args),
+                                           current_statement_, nullptr, has_side_effects);
             },
             [&](Default) {
                 AddError(expr->source) << "type is not constructible";
@@ -2475,19 +2473,23 @@ sem::Call* Resolver::BuiltinCall(const ast::CallExpression* expr,
         if (!validator_.TextureBuiltinFn(call)) {
             return nullptr;
         }
-        CollectTextureSamplerPairs(target, call->Arguments());
     }
 
     switch (fn) {
         case wgsl::BuiltinFn::kWorkgroupUniformLoad:
-            if (!validator_.WorkgroupUniformLoad(call)) {
-                return nullptr;
-            }
             RegisterLoad(args[0]);
             break;
 
         case wgsl::BuiltinFn::kSubgroupBroadcast:
             if (!validator_.SubgroupBroadcast(call)) {
+                return nullptr;
+            }
+            break;
+        case wgsl::BuiltinFn::kSubgroupShuffle:
+        case wgsl::BuiltinFn::kSubgroupShuffleUp:
+        case wgsl::BuiltinFn::kSubgroupShuffleDown:
+        case wgsl::BuiltinFn::kSubgroupShuffleXor:
+            if (!validator_.SubgroupShuffleFunction(fn, call)) {
                 return nullptr;
             }
             break;
@@ -2600,9 +2602,9 @@ sem::Call* Resolver::BuiltinCall(const ast::CallExpression* expr,
     return call;
 }
 
-core::type::Type* Resolver::BuiltinType(core::BuiltinType builtin_ty,
-                                        const ast::Identifier* ident) {
-    auto check_no_tmpl_args = [&](core::type::Type* ty) -> core::type::Type* {
+const core::type::Type* Resolver::BuiltinType(core::BuiltinType builtin_ty,
+                                              const ast::Identifier* ident) {
+    auto check_no_tmpl_args = [&](const core::type::Type* ty) -> const core::type::Type* {
         return DAWN_LIKELY(CheckNotTemplated("type", ident)) ? ty : nullptr;
     };
 
@@ -2703,6 +2705,8 @@ core::type::Type* Resolver::BuiltinType(core::BuiltinType builtin_ty,
             return check_no_tmpl_args(Vec(ident, U32(), 4u));
         case core::BuiltinType::kArray:
             return Array(ident);
+        case core::BuiltinType::kBindingArray:
+            return BindingArray(ident);
         case core::BuiltinType::kAtomic:
             return Atomic(ident);
         case core::BuiltinType::kPtr:
@@ -2713,6 +2717,12 @@ core::type::Type* Resolver::BuiltinType(core::BuiltinType builtin_ty,
         case core::BuiltinType::kSamplerComparison:
             return check_no_tmpl_args(
                 b.create<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler));
+        case core::BuiltinType::kSubgroupMatrixLeft:
+            return SubgroupMatrix(ident, core::SubgroupMatrixKind::kLeft);
+        case core::BuiltinType::kSubgroupMatrixRight:
+            return SubgroupMatrix(ident, core::SubgroupMatrixKind::kRight);
+        case core::BuiltinType::kSubgroupMatrixResult:
+            return SubgroupMatrix(ident, core::SubgroupMatrixKind::kResult);
         case core::BuiltinType::kTexture1D:
             return SampledTexture(ident, core::type::TextureDimension::k1d);
         case core::BuiltinType::kTexture2D:
@@ -2754,8 +2764,6 @@ core::type::Type* Resolver::BuiltinType(core::BuiltinType builtin_ty,
             return StorageTexture(ident, core::type::TextureDimension::k3d);
         case core::BuiltinType::kInputAttachment:
             return InputAttachment(ident);
-        case core::BuiltinType::kPackedVec3:
-            return PackedVec3T(ident);
         case core::BuiltinType::kAtomicCompareExchangeResultI32:
             return core::type::CreateAtomicCompareExchangeResult(b.Types(), b.Symbols(), I32());
         case core::BuiltinType::kAtomicCompareExchangeResultU32:
@@ -2815,27 +2823,29 @@ core::type::Type* Resolver::BuiltinType(core::BuiltinType builtin_ty,
     ICE(ident->source) << " unhandled builtin type '" << ident->symbol.NameView() << "'";
 }
 
-core::type::AbstractFloat* Resolver::AF() {
+const core::type::AbstractFloat* Resolver::AF() {
     return b.create<core::type::AbstractFloat>();
 }
 
-core::type::F32* Resolver::F32() {
+const core::type::F32* Resolver::F32() {
     return b.create<core::type::F32>();
 }
 
-core::type::I32* Resolver::I32() {
+const core::type::I32* Resolver::I32() {
     return b.create<core::type::I32>();
 }
 
-core::type::U32* Resolver::U32() {
+const core::type::U32* Resolver::U32() {
     return b.create<core::type::U32>();
 }
 
-core::type::F16* Resolver::F16(const ast::Identifier* ident) {
+const core::type::F16* Resolver::F16(const ast::Identifier* ident) {
     return validator_.CheckF16Enabled(ident->source) ? b.create<core::type::F16>() : nullptr;
 }
 
-core::type::Vector* Resolver::Vec(const ast::Identifier* ident, core::type::Type* el, uint32_t n) {
+const core::type::Vector* Resolver::Vec(const ast::Identifier* ident,
+                                        const core::type::Type* el,
+                                        uint32_t n) {
     if (DAWN_UNLIKELY(!el)) {
         return nullptr;
     }
@@ -2845,9 +2855,9 @@ core::type::Vector* Resolver::Vec(const ast::Identifier* ident, core::type::Type
     return b.create<core::type::Vector>(el, n);
 }
 
-core::type::Type* Resolver::VecT(const ast::Identifier* ident,
-                                 core::BuiltinType builtin,
-                                 uint32_t n) {
+const core::type::Type* Resolver::VecT(const ast::Identifier* ident,
+                                       core::BuiltinType builtin,
+                                       uint32_t n) {
     auto* tmpl_ident = ident->As<ast::TemplatedIdentifier>();
     if (!tmpl_ident) {
         // 'vecN' has no template arguments, so return an incomplete type.
@@ -2866,10 +2876,10 @@ core::type::Type* Resolver::VecT(const ast::Identifier* ident,
     return Vec(ident, const_cast<core::type::Type*>(ty), n);
 }
 
-core::type::Matrix* Resolver::Mat(const ast::Identifier* ident,
-                                  core::type::Type* el,
-                                  uint32_t num_columns,
-                                  uint32_t num_rows) {
+const core::type::Matrix* Resolver::Mat(const ast::Identifier* ident,
+                                        const core::type::Type* el,
+                                        uint32_t num_columns,
+                                        uint32_t num_rows) {
     if (DAWN_UNLIKELY(!el)) {
         return nullptr;
     }
@@ -2883,10 +2893,10 @@ core::type::Matrix* Resolver::Mat(const ast::Identifier* ident,
     return b.create<core::type::Matrix>(column, num_columns);
 }
 
-core::type::Type* Resolver::MatT(const ast::Identifier* ident,
-                                 core::BuiltinType builtin,
-                                 uint32_t num_columns,
-                                 uint32_t num_rows) {
+const core::type::Type* Resolver::MatT(const ast::Identifier* ident,
+                                       core::BuiltinType builtin,
+                                       uint32_t num_columns,
+                                       uint32_t num_rows) {
     auto* tmpl_ident = ident->As<ast::TemplatedIdentifier>();
     if (!tmpl_ident) {
         // 'vecN' has no template arguments, so return an incomplete type.
@@ -2905,7 +2915,7 @@ core::type::Type* Resolver::MatT(const ast::Identifier* ident,
     return Mat(ident, const_cast<core::type::Type*>(el_ty), num_columns, num_rows);
 }
 
-core::type::Type* Resolver::Array(const ast::Identifier* ident) {
+const core::type::Type* Resolver::Array(const ast::Identifier* ident) {
     auto* tmpl_ident = ident->As<ast::TemplatedIdentifier>();
     if (!tmpl_ident) {
         // 'array' has no template arguments, so return an incomplete type.
@@ -2950,11 +2960,38 @@ core::type::Type* Resolver::Array(const ast::Identifier* ident) {
             atomic_composite_info_.Add(out, *found);
         }
     }
+    if (subgroup_matrix_uses_.Contains(el_ty)) {
+        subgroup_matrix_uses_.Add(out);
+    }
 
     return out;
 }
 
-core::type::Atomic* Resolver::Atomic(const ast::Identifier* ident) {
+const core::type::BindingArray* Resolver::BindingArray(const ast::Identifier* ident) {
+    auto* tmpl_ident = TemplatedIdentifier(ident, 2);
+    if (DAWN_UNLIKELY(!tmpl_ident)) {
+        return nullptr;
+    }
+
+    auto* el_type = sem_.GetType(tmpl_ident->arguments[0]);
+    if (DAWN_UNLIKELY(!el_type)) {
+        return nullptr;
+    }
+
+    const core::type::ArrayCount* el_count = ArrayCount(tmpl_ident->arguments[1]);
+    if (!el_count) {
+        return nullptr;
+    }
+
+    auto* out = b.create<core::type::BindingArray>(el_type, el_count);
+    if (DAWN_UNLIKELY(!validator_.BindingArray(out, ident->source))) {
+        return nullptr;
+    }
+
+    return out;
+}
+
+const core::type::Atomic* Resolver::Atomic(const ast::Identifier* ident) {
     auto* tmpl_ident = TemplatedIdentifier(ident, 1);  // atomic<type>
     if (DAWN_UNLIKELY(!tmpl_ident)) {
         return nullptr;
@@ -2972,7 +3009,7 @@ core::type::Atomic* Resolver::Atomic(const ast::Identifier* ident) {
     return out;
 }
 
-core::type::Pointer* Resolver::Ptr(const ast::Identifier* ident) {
+const core::type::Pointer* Resolver::Ptr(const ast::Identifier* ident) {
     auto* tmpl_ident = TemplatedIdentifier(ident, 2, 3);  // ptr<address, type [, access]>
     if (DAWN_UNLIKELY(!tmpl_ident)) {
         return nullptr;
@@ -3010,8 +3047,8 @@ core::type::Pointer* Resolver::Ptr(const ast::Identifier* ident) {
     return out;
 }
 
-core::type::SampledTexture* Resolver::SampledTexture(const ast::Identifier* ident,
-                                                     core::type::TextureDimension dim) {
+const core::type::SampledTexture* Resolver::SampledTexture(const ast::Identifier* ident,
+                                                           core::type::TextureDimension dim) {
     auto* tmpl_ident = TemplatedIdentifier(ident, 1);
     if (DAWN_UNLIKELY(!tmpl_ident)) {
         return nullptr;
@@ -3026,8 +3063,9 @@ core::type::SampledTexture* Resolver::SampledTexture(const ast::Identifier* iden
     return validator_.SampledTexture(out, ident->source) ? out : nullptr;
 }
 
-core::type::MultisampledTexture* Resolver::MultisampledTexture(const ast::Identifier* ident,
-                                                               core::type::TextureDimension dim) {
+const core::type::MultisampledTexture* Resolver::MultisampledTexture(
+    const ast::Identifier* ident,
+    core::type::TextureDimension dim) {
     auto* tmpl_ident = TemplatedIdentifier(ident, 1);
     if (DAWN_UNLIKELY(!tmpl_ident)) {
         return nullptr;
@@ -3042,8 +3080,8 @@ core::type::MultisampledTexture* Resolver::MultisampledTexture(const ast::Identi
     return validator_.MultisampledTexture(out, ident->source) ? out : nullptr;
 }
 
-core::type::StorageTexture* Resolver::StorageTexture(const ast::Identifier* ident,
-                                                     core::type::TextureDimension dim) {
+const core::type::StorageTexture* Resolver::StorageTexture(const ast::Identifier* ident,
+                                                           core::type::TextureDimension dim) {
     auto* tmpl_ident = TemplatedIdentifier(ident, 2);
     if (DAWN_UNLIKELY(!tmpl_ident)) {
         return nullptr;
@@ -3059,8 +3097,7 @@ core::type::StorageTexture* Resolver::StorageTexture(const ast::Identifier* iden
         return nullptr;
     }
 
-    auto* subtype = core::type::StorageTexture::SubtypeFor(format, b.Types());
-    auto* tex = b.create<core::type::StorageTexture>(dim, format, access, subtype);
+    auto* tex = b.Types().storage_texture(dim, format, access);
     if (!validator_.StorageTexture(tex, ident->source)) {
         return nullptr;
     }
@@ -3068,7 +3105,7 @@ core::type::StorageTexture* Resolver::StorageTexture(const ast::Identifier* iden
     return tex;
 }
 
-core::type::InputAttachment* Resolver::InputAttachment(const ast::Identifier* ident) {
+const core::type::InputAttachment* Resolver::InputAttachment(const ast::Identifier* ident) {
     auto* tmpl_ident = TemplatedIdentifier(ident, 1);
     if (DAWN_UNLIKELY(!tmpl_ident)) {
         return nullptr;
@@ -3083,21 +3120,49 @@ core::type::InputAttachment* Resolver::InputAttachment(const ast::Identifier* id
     return validator_.InputAttachment(out, ident->source) ? out : nullptr;
 }
 
-core::type::Vector* Resolver::PackedVec3T(const ast::Identifier* ident) {
-    auto* tmpl_ident = TemplatedIdentifier(ident, 1);
+const core::type::SubgroupMatrix* Resolver::SubgroupMatrix(const ast::Identifier* ident,
+                                                           core::SubgroupMatrixKind kind) {
+    auto* tmpl_ident = TemplatedIdentifier(ident, 3);
     if (DAWN_UNLIKELY(!tmpl_ident)) {
         return nullptr;
     }
 
-    auto* el_ty = sem_.GetType(tmpl_ident->arguments[0]);
-    if (DAWN_UNLIKELY(!el_ty)) {
+    auto* ty_expr = sem_.GetType(tmpl_ident->arguments[0]);
+    if (DAWN_UNLIKELY(!ty_expr)) {
         return nullptr;
     }
 
-    if (DAWN_UNLIKELY(!validator_.Vector(el_ty, ident->source))) {
+    auto get_dim = [&](const ast::Expression* arg,
+                       const char* dim) -> const core::constant::Value* {
+        const auto* cols_sem = Materialize(sem_.GetVal(arg));
+        if (!cols_sem) {
+            return nullptr;
+        }
+        if (!cols_sem->ConstantValue() || cols_sem->ConstantValue()->ValueAs<AInt>() < 1) {
+            AddError(arg->source) << "subgroup matrix " << dim
+                                  << " count must be a constant positive integer";
+            return nullptr;
+        }
+        return cols_sem->ConstantValue();
+    };
+    auto* cols = get_dim(tmpl_ident->arguments[1], "column");
+    if (!cols) {
         return nullptr;
     }
-    return b.create<core::type::Vector>(el_ty, 3u, true);
+    auto* rows = get_dim(tmpl_ident->arguments[2], "row");
+    if (!rows) {
+        return nullptr;
+    }
+
+    auto* out = b.create<core::type::SubgroupMatrix>(kind, ty_expr, cols->ValueAs<uint32_t>(),
+                                                     rows->ValueAs<uint32_t>());
+
+    subgroup_matrix_uses_.Add(out);
+    if (current_function_) {
+        current_function_->SetDirectlyUsedSubgroupMatrix(&ident->source);
+    }
+
+    return validator_.SubgroupMatrix(out, ident->source) ? out : nullptr;
 }
 
 const ast::TemplatedIdentifier* Resolver::TemplatedIdentifier(const ast::Identifier* ident,
@@ -3138,7 +3203,7 @@ bool Resolver::CheckTemplatedIdentifierArgs(const ast::TemplatedIdentifier* iden
             return false;
         }
     }
-    return ident;
+    return ident != nullptr;
 }
 
 size_t Resolver::NestDepth(const core::type::Type* ty) const {
@@ -3152,36 +3217,6 @@ size_t Resolver::NestDepth(const core::type::Type* ty) const {
             }
             return size_t{0};
         });
-}
-
-void Resolver::CollectTextureSamplerPairs(const sem::BuiltinFn* builtin,
-                                          VectorRef<const sem::ValueExpression*> args) const {
-    if (builtin->Fn() == wgsl::BuiltinFn::kInputAttachmentLoad) {
-        // inputAttachmentLoad() is considered a texture function, however it doesn't need sampler,
-        // and its parameter has ParameterUsage::kInputAttachment, so return early.
-        return;
-    }
-
-    // Collect a texture/sampler pair for this builtin.
-    const auto& signature = builtin->Signature();
-    int texture_index = signature.IndexOf(core::ParameterUsage::kTexture);
-    if (DAWN_UNLIKELY(texture_index == -1)) {
-        TINT_ICE() << "texture builtin without texture parameter";
-    }
-    if (auto* user =
-            args[static_cast<size_t>(texture_index)]->UnwrapLoad()->As<sem::VariableUser>()) {
-        auto* texture = user->Variable();
-        if (!texture->Type()->UnwrapRef()->Is<core::type::StorageTexture>()) {
-            int sampler_index = signature.IndexOf(core::ParameterUsage::kSampler);
-            const sem::Variable* sampler = sampler_index != -1
-                                               ? args[static_cast<size_t>(sampler_index)]
-                                                     ->UnwrapLoad()
-                                                     ->As<sem::VariableUser>()
-                                                     ->Variable()
-                                               : nullptr;
-            current_function_->AddTextureSamplerPair(texture, sampler);
-        }
-    }
 }
 
 sem::Call* Resolver::FunctionCall(const ast::CallExpression* expr,
@@ -3227,35 +3262,9 @@ sem::Call* Resolver::FunctionCall(const ast::CallExpression* expr,
         if (!AliasAnalysis(call)) {
             return nullptr;
         }
-
-        // Note: Validation *must* be performed before calling this method.
-        CollectTextureSamplerPairs(target, call->Arguments());
     }
 
     return call;
-}
-
-void Resolver::CollectTextureSamplerPairs(sem::Function* func,
-                                          VectorRef<const sem::ValueExpression*> args) const {
-    // Map all texture/sampler pairs from the target function to the
-    // current function. These can only be global or parameter
-    // variables. Resolve any parameter variables to the corresponding
-    // argument passed to the current function. Leave global variables
-    // as-is. Then add the mapped pair to the current function's list of
-    // texture/sampler pairs.
-    for (sem::VariablePair pair : func->TextureSamplerPairs()) {
-        const sem::Variable* texture = pair.first;
-        const sem::Variable* sampler = pair.second;
-        if (auto* param = texture->As<sem::Parameter>()) {
-            texture = args[param->Index()]->UnwrapLoad()->As<sem::VariableUser>()->Variable();
-        }
-        if (sampler) {
-            if (auto* param = sampler->As<sem::Parameter>()) {
-                sampler = args[param->Index()]->UnwrapLoad()->As<sem::VariableUser>()->Variable();
-            }
-        }
-        current_function_->AddTextureSamplerPair(texture, sampler);
-    }
 }
 
 sem::ValueExpression* Resolver::Literal(const ast::LiteralExpression* literal) {
@@ -3401,6 +3410,10 @@ sem::Expression* Resolver::Identifier(const ast::IdentifierExpression* expr) {
                         sem_.NoteDeclarationSource(variable->Declaration());
                         return nullptr;
                     }
+                    if (current_function_ &&
+                        subgroup_matrix_uses_.Contains(variable->Type()->UnwrapRef())) {
+                        current_function_->SetDirectlyUsedSubgroupMatrix(&expr->source);
+                    }
                 }
 
                 variable->AddUser(user);
@@ -3419,6 +3432,10 @@ sem::Expression* Resolver::Identifier(const ast::IdentifierExpression* expr) {
                             fn(ref);
                         }
                     }
+                }
+
+                if (current_function_ && subgroup_matrix_uses_.Contains(ty)) {
+                    current_function_->SetDirectlyUsedSubgroupMatrix(&expr->source);
                 }
 
                 return b.create<sem::TypeExpression>(expr, current_statement_, ty);
@@ -3483,7 +3500,8 @@ sem::ValueExpression* Resolver::MemberAccessor(const ast::MemberAccessorExpressi
     const core::type::Type* storage_ty = object_ty->UnwrapRef();
     if (memory_view) {
         if (memory_view->Is<core::type::Pointer>() &&
-            !allowed_features_.features.count(wgsl::LanguageFeature::kPointerCompositeAccess)) {
+            (allowed_features_.features.count(wgsl::LanguageFeature::kPointerCompositeAccess) ==
+             0u)) {
             AddError(expr->source)
                 << "pointer composite access requires the pointer_composite_access language "
                    "feature, which is not allowed in the current environment";
@@ -4151,10 +4169,10 @@ bool Resolver::Requires(const ast::Requires* req) {
     return true;
 }
 
-core::type::Type* Resolver::TypeDecl(const ast::TypeDecl* named_type) {
+const core::type::Type* Resolver::TypeDecl(const ast::TypeDecl* named_type) {
     Mark(named_type->name);
 
-    core::type::Type* result = nullptr;
+    const core::type::Type* result = nullptr;
     if (auto* alias = named_type->As<ast::Alias>()) {
         result = Alias(alias);
     } else if (auto* str = named_type->As<ast::Struct>()) {
@@ -4300,7 +4318,7 @@ sem::Array* Resolver::Array(const Source& array_source,
     return out;
 }
 
-core::type::Type* Resolver::Alias(const ast::Alias* alias) {
+const core::type::Type* Resolver::Alias(const ast::Alias* alias) {
     auto* ty = Type(alias->type);
     if (DAWN_UNLIKELY(!ty)) {
         return nullptr;
@@ -4316,17 +4334,14 @@ sem::Struct* Resolver::Structure(const ast::Struct* str) {
         return str->name->symbol.NameView();
     };
 
-    if (validator_.IsValidationEnabled(str->attributes,
-                                       ast::DisabledValidation::kIgnoreStructMemberLimit)) {
-        // Maximum number of members in a structure type
-        // https://gpuweb.github.io/gpuweb/wgsl/#limits
-        const size_t kMaxNumStructMembers = 16383;
-        if (str->members.Length() > kMaxNumStructMembers) {
-            AddError(str->source) << style::Keyword("struct ") << style::Type(struct_name())
-                                  << " has " << str->members.Length() << " members, maximum is "
-                                  << kMaxNumStructMembers;
-            return nullptr;
-        }
+    // Maximum number of members in a structure type
+    // https://gpuweb.github.io/gpuweb/wgsl/#limits
+    const size_t kMaxNumStructMembers = 16383;
+    if (str->members.Length() > kMaxNumStructMembers) {
+        AddError(str->source) << style::Keyword("struct ") << style::Type(struct_name()) << " has "
+                              << str->members.Length() << " members, maximum is "
+                              << kMaxNumStructMembers;
+        return nullptr;
     }
 
     if (!validator_.NoDuplicateAttributes(str->attributes)) {
@@ -4618,12 +4633,13 @@ sem::Struct* Resolver::Structure(const ast::Struct* str) {
         auto* mem_type = sem_members[i]->Type();
         if (mem_type->Is<core::type::Atomic>()) {
             atomic_composite_info_.Add(out, &sem_members[i]->Declaration()->source);
-            break;
         } else {
             if (auto found = atomic_composite_info_.Get(mem_type)) {
                 atomic_composite_info_.Add(out, *found);
-                break;
             }
+        }
+        if (subgroup_matrix_uses_.Contains(mem_type)) {
+            subgroup_matrix_uses_.Add(out);
         }
 
         const_cast<sem::StructMember*>(sem_members[i])->SetStruct(out);
@@ -4941,11 +4957,11 @@ sem::Statement* Resolver::IncrementDecrementStatement(
 }
 
 bool Resolver::ApplyAddressSpaceUsageToType(core::AddressSpace address_space,
-                                            core::type::Type* ty,
+                                            const core::type::Type* ty,
                                             const Source& usage) {
     ty = const_cast<core::type::Type*>(ty->UnwrapRef());
 
-    if (auto* str = ty->As<sem::Struct>()) {
+    if (auto* str = const_cast<sem::Struct*>(ty->As<sem::Struct>())) {
         if (str->AddressSpaceUsage().Contains(address_space)) {
             return true;  // Already applied
         }
@@ -4985,7 +5001,17 @@ bool Resolver::ApplyAddressSpaceUsageToType(core::AddressSpace address_space,
                                             const_cast<core::type::Type*>(arr->ElemType()), usage);
     }
 
-    if (core::IsHostShareable(address_space) && !validator_.IsHostShareable(ty)) {
+    // Subgroup matrix types can only be declared in the `function` and `private` address space, or
+    // in value declarations (the `undefined` address space).
+    if (ty->Is<core::type::SubgroupMatrix>() && address_space != core::AddressSpace::kUndefined &&
+        address_space != core::AddressSpace::kFunction &&
+        address_space != core::AddressSpace::kPrivate) {
+        AddError(usage) << "subgroup matrix types cannot be declared in the "
+                        << style::Enum(address_space) << " address space";
+        return false;
+    }
+
+    if (core::IsHostShareable(address_space) && !ty->IsHostShareable()) {
         AddError(usage) << "type " << style::Type(sem_.TypeNameOf(ty))
                         << " cannot be used in address space " << style::Enum(address_space)
                         << " as it is non-host-shareable";

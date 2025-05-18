@@ -161,8 +161,7 @@ TEST_F(SpirvWriterTest, WorkgroupVar) {
 TEST_F(SpirvWriterTest, WorkgroupVar_LoadAndStore) {
     auto* v = mod.root_block->Append(b.Var("v", ty.ptr<workgroup, i32>()));
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute,
-                            std::array{1u, 1u, 1u});
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         auto* load = b.Load(v);
         auto* add = b.Add(ty.i32(), load, 1_i);
@@ -215,8 +214,7 @@ TEST_F(SpirvWriterTest, StorageVar_LoadAndStore) {
     v->SetBindingPoint(0, 0);
     mod.root_block->Append(v);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute,
-                            std::array{1u, 1u, 1u});
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         auto* load = b.Load(v);
         auto* add = b.Add(ty.i32(), load, 1_i);
@@ -245,8 +243,7 @@ TEST_F(SpirvWriterTest, StorageVar_WithVulkan) {
     v->SetBindingPoint(0, 0);
     mod.root_block->Append(v);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute,
-                            std::array{1u, 1u, 1u});
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         auto* load = b.Load(v);
         auto* add = b.Add(ty.i32(), load, 1_i);
@@ -307,11 +304,9 @@ TEST_F(SpirvWriterTest, StorageVar_WithVulkan) {
 
 TEST_F(SpirvWriterTest, StorageVar_Workgroup_WithVulkan) {
     auto* v = b.Var("v", ty.ptr<workgroup, i32, read_write>());
-    v->SetBindingPoint(0, 0);
     mod.root_block->Append(v);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute,
-                            std::array{1u, 1u, 1u});
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         auto* load = b.Load(v);
         auto* add = b.Add(ty.i32(), load, 1_i);
@@ -338,8 +333,8 @@ TEST_F(SpirvWriterTest, StorageVar_Workgroup_WithVulkan) {
                OpName %foo_local_invocation_index_Input "foo_local_invocation_index_Input"  ; id %4
                OpName %foo_inner "foo_inner"                                                ; id %7
                OpName %tint_local_index "tint_local_index"                                  ; id %9
-               OpName %load "load"                                                          ; id %21
-               OpName %add "add"                                                            ; id %22
+               OpName %load "load"                                                          ; id %20
+               OpName %add "add"                                                            ; id %21
                OpName %foo "foo"                                                            ; id %24
 
                ; Annotations
@@ -354,19 +349,19 @@ TEST_F(SpirvWriterTest, StorageVar_Workgroup_WithVulkan) {
 %foo_local_invocation_index_Input = OpVariable %_ptr_Input_uint Input   ; BuiltIn LocalInvocationIndex
        %void = OpTypeVoid
          %10 = OpTypeFunction %void %uint
-     %uint_0 = OpConstant %uint 0
+     %uint_1 = OpConstant %uint 1
        %bool = OpTypeBool
-      %int_0 = OpConstant %int 0
      %uint_2 = OpConstant %uint 2
  %uint_24840 = OpConstant %uint 24840
       %int_1 = OpConstant %int 1
+      %int_0 = OpConstant %int 0
          %25 = OpTypeFunction %void
 
                ; Function foo_inner
   %foo_inner = OpFunction %void None %10
 %tint_local_index = OpFunctionParameter %uint
          %11 = OpLabel
-         %12 = OpIEqual %bool %tint_local_index %uint_0
+         %12 = OpULessThan %bool %tint_local_index %uint_1
                OpSelectionMerge %15 None
                OpBranchConditional %12 %16 %15
          %16 = OpLabel
@@ -394,8 +389,7 @@ TEST_F(SpirvWriterTest, StorageVar_WriteOnly) {
     v->SetBindingPoint(0, 0);
     mod.root_block->Append(v);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute,
-                            std::array{1u, 1u, 1u});
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         b.Store(v, 42_i);
         b.Return(func);
@@ -437,8 +431,7 @@ TEST_F(SpirvWriterTest, UniformVar_Load) {
     v->SetBindingPoint(0, 0);
     mod.root_block->Append(v);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute,
-                            std::array{1u, 1u, 1u});
+    auto* func = b.ComputeFunction("foo");
     b.Append(func->Block(), [&] {
         auto* load = b.Load(v);
         b.Return(func);
@@ -520,10 +513,9 @@ TEST_F(SpirvWriterTest, SamplerVar_Load) {
 }
 
 TEST_F(SpirvWriterTest, TextureVar) {
-    auto* v = b.Var(
-        "v", ty.ptr(core::AddressSpace::kHandle,
-                    ty.Get<core::type::SampledTexture>(core::type::TextureDimension::k2d, ty.f32()),
-                    core::Access::kRead));
+    auto* v = b.Var("v", ty.ptr(core::AddressSpace::kHandle,
+                                ty.sampled_texture(core::type::TextureDimension::k2d, ty.f32()),
+                                core::Access::kRead));
     v->SetBindingPoint(0, 0);
     mod.root_block->Append(v);
 
@@ -540,10 +532,9 @@ TEST_F(SpirvWriterTest, TextureVar) {
 }
 
 TEST_F(SpirvWriterTest, TextureVar_Load) {
-    auto* v = b.Var(
-        "v", ty.ptr(core::AddressSpace::kHandle,
-                    ty.Get<core::type::SampledTexture>(core::type::TextureDimension::k2d, ty.f32()),
-                    core::Access::kRead));
+    auto* v = b.Var("v", ty.ptr(core::AddressSpace::kHandle,
+                                ty.sampled_texture(core::type::TextureDimension::k2d, ty.f32()),
+                                core::Access::kRead));
     v->SetBindingPoint(0, 0);
     mod.root_block->Append(v);
 
@@ -561,9 +552,7 @@ TEST_F(SpirvWriterTest, TextureVar_Load) {
 TEST_F(SpirvWriterTest, ReadOnlyStorageTextureVar) {
     auto format = core::TexelFormat::kRgba8Unorm;
     auto* v = b.Var("v", ty.ptr(core::AddressSpace::kHandle,
-                                ty.Get<core::type::StorageTexture>(
-                                    core::type::TextureDimension::k2d, format, read,
-                                    core::type::StorageTexture::SubtypeFor(format, ty)),
+                                ty.storage_texture(core::type::TextureDimension::k2d, format, read),
                                 core::Access::kRead));
     v->SetBindingPoint(0, 0);
     mod.root_block->Append(v);
@@ -583,11 +572,10 @@ TEST_F(SpirvWriterTest, ReadOnlyStorageTextureVar) {
 
 TEST_F(SpirvWriterTest, ReadWriteStorageTextureVar) {
     auto format = core::TexelFormat::kRgba8Unorm;
-    auto* v = b.Var("v", ty.ptr(core::AddressSpace::kHandle,
-                                ty.Get<core::type::StorageTexture>(
-                                    core::type::TextureDimension::k2d, format, read_write,
-                                    core::type::StorageTexture::SubtypeFor(format, ty)),
-                                core::Access::kRead));
+    auto* v =
+        b.Var("v", ty.ptr(core::AddressSpace::kHandle,
+                          ty.storage_texture(core::type::TextureDimension::k2d, format, read_write),
+                          core::Access::kRead));
     v->SetBindingPoint(0, 0);
     mod.root_block->Append(v);
 
@@ -606,11 +594,10 @@ TEST_F(SpirvWriterTest, ReadWriteStorageTextureVar) {
 
 TEST_F(SpirvWriterTest, WriteOnlyStorageTextureVar) {
     auto format = core::TexelFormat::kRgba8Unorm;
-    auto* v = b.Var("v", ty.ptr(core::AddressSpace::kHandle,
-                                ty.Get<core::type::StorageTexture>(
-                                    core::type::TextureDimension::k2d, format, write,
-                                    core::type::StorageTexture::SubtypeFor(format, ty)),
-                                core::Access::kRead));
+    auto* v =
+        b.Var("v", ty.ptr(core::AddressSpace::kHandle,
+                          ty.storage_texture(core::type::TextureDimension::k2d, format, write),
+                          core::Access::kRead));
     v->SetBindingPoint(0, 0);
     mod.root_block->Append(v);
 

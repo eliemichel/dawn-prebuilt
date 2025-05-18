@@ -71,7 +71,7 @@ struct State {
     /// Process the function.
     /// @param fn the function to process
     void Process(core::ir::Function* fn) {
-        if (fn->Stage() != core::ir::Function::PipelineStage::kUndefined) {
+        if (fn->IsEntryPoint()) {
             // Entry points are not called and do not require this transformation to ensure
             // convergence.
             return;
@@ -259,7 +259,7 @@ struct State {
         // Change the function return to unconditionally load 'return_val' and return it
         auto* load = b.Load(return_val);
         load->InsertBefore(ret);
-        ret->SetValue(load->Result(0));
+        ret->SetValue(load->Result());
     }
 
     /// Transforms the return instruction that is found in a control instruction.
@@ -322,7 +322,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> MergeReturn(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "MergeReturn transform");
+    auto result = ValidateAndDumpIfNeeded(ir, "spirv.MergeReturn");
     if (result != Success) {
         return result;
     }

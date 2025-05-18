@@ -40,7 +40,7 @@
 #include <cstdint>
 #include <string>
 
-#include "src/tint/utils/traits/traits.h"
+#include "src/tint/utils/rtti/traits.h"
 
 namespace tint::core {
 
@@ -54,16 +54,20 @@ enum class ParameterUsage : uint8_t {
     kCompareValue,
     kComponent,
     kCoords,
+    kCount,
     kDdx,
     kDdy,
     kDelta,
     kDepth,
     kDepthRef,
+    kDref,
     kE,
     kElements,
     kExp,
     kHeight,
+    kI,
     kId,
+    kImageOperands,
     kInputAttachment,
     kInsert,
     kLevel,

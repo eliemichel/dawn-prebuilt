@@ -372,6 +372,8 @@ class MultisampledRenderingTest : public DawnTest {
 
 // Test using one multisampled color attachment with resolve target can render correctly.
 TEST_P(MultisampledRenderingTest, ResolveInto2DTexture) {
+    DAWN_SUPPRESS_TEST_IF(IsWARP());
+
     constexpr bool kTestDepth = false;
     wgpu::RenderPipeline pipeline = CreateRenderPipelineWithOneOutputForTest(kTestDepth);
 
@@ -526,6 +528,7 @@ TEST_P(MultisampledRenderingTest, ResolveOneOfMultipleTargets) {
     // TODO(dawn:1550) Workaround introduces a bug on Qualcomm GPUs, but is necessary for ARM GPUs.
     DAWN_TEST_UNSUPPORTED_IF(IsAndroid() && IsQualcomm() &&
                              HasToggleEnabled("resolve_multiple_attachments_in_separate_passes"));
+    DAWN_SUPPRESS_TEST_IF(IsWARP());
 
     wgpu::TextureView multisampledColorView2 =
         CreateTextureForRenderAttachment(kColorFormat, kSampleCount).CreateView();
@@ -1717,6 +1720,9 @@ TEST_P(DawnLoadResolveTextureTest, TwoOutputsDrawThenLoadColor0) {
     // with DawnLoadResolveTexture feature if there are more than one attachment.
     DAWN_TEST_UNSUPPORTED_IF(HasResolveMultipleAttachmentInSeparatePassesToggle());
 
+    // TODO(383731610): multiple outputs are not working in compat mode.
+    DAWN_SUPPRESS_TEST_IF(IsCompatibilityMode());
+
     auto multiSampledTexture1 = CreateTextureForRenderAttachment(kColorFormat, 4, 1, 1,
                                                                  /*transientAttachment=*/false,
                                                                  /*supportsTextureBinding=*/false);
@@ -1797,6 +1803,9 @@ TEST_P(DawnLoadResolveTextureTest, TwoOutputsDrawThenLoadColor1) {
     // TODO(42240662): "resolve_multiple_attachments_in_separate_passes" is currently not working
     // with DawnLoadResolveTexture feature if there are more than one attachment.
     DAWN_TEST_UNSUPPORTED_IF(HasResolveMultipleAttachmentInSeparatePassesToggle());
+
+    // TODO(383731610): multiple outputs are not working in compat mode.
+    DAWN_SUPPRESS_TEST_IF(IsCompatibilityMode());
 
     auto multiSampledTexture1 = CreateTextureForRenderAttachment(kColorFormat, 4, 1, 1,
                                                                  /*transientAttachment=*/false,
@@ -2134,6 +2143,9 @@ TEST_P(DawnLoadResolveTextureTest, TwoOutputsDrawWithDepthTestColor0AndColor1) {
 
 // Test rendering into a layer of a 2D array texture and load op=LoadOp::ExpandResolveTexture.
 TEST_P(DawnLoadResolveTextureTest, DrawThenLoad2DArrayTextureLayer) {
+    // Creating 2D view from 2D array texture is not supported in compat mode.
+    DAWN_TEST_UNSUPPORTED_IF(IsCompatibilityMode());
+
     auto multiSampledTexture = CreateTextureForRenderAttachment(kColorFormat, 4, 1, 1,
                                                                 /*transientAttachment=*/false,
                                                                 /*supportsTextureBinding=*/false);

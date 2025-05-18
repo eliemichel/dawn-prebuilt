@@ -86,26 +86,24 @@ TEST_F(GlslWriter_OffsetFirstIndexTest, NoModify_BuiltinsWithNoOffsets) {
     func->SetReturnBuiltin(core::BuiltinValue::kPosition);
 
     b.Append(func->Block(), [&] {
-        auto* vertex = b.Convert<u32>(b.Load(vertex_idx));
-        auto* instance = b.Convert<u32>(b.Load(instance_idx));
+        auto* vertex = b.Load(vertex_idx);
+        auto* instance = b.Load(instance_idx);
         b.Let("add", b.Add<u32>(vertex, instance));
         b.Return(func, b.Zero(ty.vec4<f32>()));
     });
 
     auto* src = R"(
 $B1: {  # root
-  %vertex_index:ptr<__in, u32, read> = var @builtin(vertex_index)
-  %instance_index:ptr<__in, u32, read> = var @builtin(instance_index)
+  %vertex_index:ptr<__in, u32, read> = var undef @builtin(vertex_index)
+  %instance_index:ptr<__in, u32, read> = var undef @builtin(instance_index)
 }
 
 %foo = @vertex func():vec4<f32> [@position] {
   $B2: {
     %4:u32 = load %vertex_index
-    %5:u32 = convert %4
-    %6:u32 = load %instance_index
-    %7:u32 = convert %6
-    %8:u32 = add %5, %7
-    %add:u32 = let %8
+    %5:u32 = load %instance_index
+    %6:u32 = add %4, %5
+    %add:u32 = let %6
     ret vec4<f32>(0.0f)
   }
 }
@@ -140,26 +138,24 @@ TEST_F(GlslWriter_OffsetFirstIndexTest, VertexOffset) {
     func->SetReturnBuiltin(core::BuiltinValue::kPosition);
 
     b.Append(func->Block(), [&] {
-        auto* vertex = b.Convert<u32>(b.Load(vertex_idx));
-        auto* instance = b.Convert<u32>(b.Load(instance_idx));
+        auto* vertex = b.Load(vertex_idx);
+        auto* instance = b.Load(instance_idx);
         b.Let("add", b.Add<u32>(vertex, instance));
         b.Return(func, b.Zero(ty.vec4<f32>()));
     });
 
     auto* src = R"(
 $B1: {  # root
-  %vertex_index:ptr<__in, u32, read> = var @builtin(vertex_index)
-  %instance_index:ptr<__in, u32, read> = var @builtin(instance_index)
+  %vertex_index:ptr<__in, u32, read> = var undef @builtin(vertex_index)
+  %instance_index:ptr<__in, u32, read> = var undef @builtin(instance_index)
 }
 
 %foo = @vertex func():vec4<f32> [@position] {
   $B2: {
     %4:u32 = load %vertex_index
-    %5:u32 = convert %4
-    %6:u32 = load %instance_index
-    %7:u32 = convert %6
-    %8:u32 = add %5, %7
-    %add:u32 = let %8
+    %5:u32 = load %instance_index
+    %6:u32 = add %4, %5
+    %add:u32 = let %6
     ret vec4<f32>(0.0f)
   }
 }
@@ -172,22 +168,20 @@ tint_push_constant_struct = struct @align(4), @block {
 }
 
 $B1: {  # root
-  %vertex_index:ptr<__in, u32, read> = var @builtin(vertex_index)
-  %instance_index:ptr<__in, u32, read> = var @builtin(instance_index)
-  %tint_push_constants:ptr<push_constant, tint_push_constant_struct, read> = var
+  %vertex_index:ptr<__in, u32, read> = var undef @builtin(vertex_index)
+  %instance_index:ptr<__in, u32, read> = var undef @builtin(instance_index)
+  %tint_push_constants:ptr<push_constant, tint_push_constant_struct, read> = var undef
 }
 
 %foo = @vertex func():vec4<f32> [@position] {
   $B2: {
     %5:u32 = load %vertex_index
-    %6:u32 = convert %5
-    %7:ptr<push_constant, u32, read> = access %tint_push_constants, 0u
-    %8:u32 = load %7
-    %9:u32 = add %6, %8
-    %10:u32 = load %instance_index
-    %11:u32 = convert %10
-    %12:u32 = add %9, %11
-    %add:u32 = let %12
+    %6:ptr<push_constant, u32, read> = access %tint_push_constants, 0u
+    %7:u32 = load %6
+    %8:u32 = add %5, %7
+    %9:u32 = load %instance_index
+    %10:u32 = add %8, %9
+    %add:u32 = let %10
     ret vec4<f32>(0.0f)
   }
 }
@@ -221,26 +215,24 @@ TEST_F(GlslWriter_OffsetFirstIndexTest, InstanceOffset) {
     func->SetReturnBuiltin(core::BuiltinValue::kPosition);
 
     b.Append(func->Block(), [&] {
-        auto* vertex = b.Convert<u32>(b.Load(vertex_idx));
-        auto* instance = b.Convert<u32>(b.Load(instance_idx));
+        auto* vertex = b.Load(vertex_idx);
+        auto* instance = b.Load(instance_idx);
         b.Let("add", b.Add<u32>(vertex, instance));
         b.Return(func, b.Zero(ty.vec4<f32>()));
     });
 
     auto* src = R"(
 $B1: {  # root
-  %vertex_index:ptr<__in, u32, read> = var @builtin(vertex_index)
-  %instance_index:ptr<__in, u32, read> = var @builtin(instance_index)
+  %vertex_index:ptr<__in, u32, read> = var undef @builtin(vertex_index)
+  %instance_index:ptr<__in, u32, read> = var undef @builtin(instance_index)
 }
 
 %foo = @vertex func():vec4<f32> [@position] {
   $B2: {
     %4:u32 = load %vertex_index
-    %5:u32 = convert %4
-    %6:u32 = load %instance_index
-    %7:u32 = convert %6
-    %8:u32 = add %5, %7
-    %add:u32 = let %8
+    %5:u32 = load %instance_index
+    %6:u32 = add %4, %5
+    %add:u32 = let %6
     ret vec4<f32>(0.0f)
   }
 }
@@ -253,22 +245,20 @@ tint_push_constant_struct = struct @align(4), @block {
 }
 
 $B1: {  # root
-  %vertex_index:ptr<__in, u32, read> = var @builtin(vertex_index)
-  %instance_index:ptr<__in, u32, read> = var @builtin(instance_index)
-  %tint_push_constants:ptr<push_constant, tint_push_constant_struct, read> = var
+  %vertex_index:ptr<__in, u32, read> = var undef @builtin(vertex_index)
+  %instance_index:ptr<__in, u32, read> = var undef @builtin(instance_index)
+  %tint_push_constants:ptr<push_constant, tint_push_constant_struct, read> = var undef
 }
 
 %foo = @vertex func():vec4<f32> [@position] {
   $B2: {
     %5:u32 = load %vertex_index
-    %6:u32 = convert %5
-    %7:u32 = load %instance_index
-    %8:u32 = convert %7
-    %9:ptr<push_constant, u32, read> = access %tint_push_constants, 0u
-    %10:u32 = load %9
-    %11:u32 = add %8, %10
-    %12:u32 = add %6, %11
-    %add:u32 = let %12
+    %6:u32 = load %instance_index
+    %7:ptr<push_constant, u32, read> = access %tint_push_constants, 0u
+    %8:u32 = load %7
+    %9:u32 = add %6, %8
+    %10:u32 = add %5, %9
+    %add:u32 = let %10
     ret vec4<f32>(0.0f)
   }
 }
@@ -302,26 +292,24 @@ TEST_F(GlslWriter_OffsetFirstIndexTest, VertexAndInstanceOffset) {
     func->SetReturnBuiltin(core::BuiltinValue::kPosition);
 
     b.Append(func->Block(), [&] {
-        auto* vertex = b.Convert<u32>(b.Load(vertex_idx));
-        auto* instance = b.Convert<u32>(b.Load(instance_idx));
+        auto* vertex = b.Load(vertex_idx);
+        auto* instance = b.Load(instance_idx);
         b.Let("add", b.Add<u32>(vertex, instance));
         b.Return(func, b.Zero(ty.vec4<f32>()));
     });
 
     auto* src = R"(
 $B1: {  # root
-  %vertex_index:ptr<__in, u32, read> = var @builtin(vertex_index)
-  %instance_index:ptr<__in, u32, read> = var @builtin(instance_index)
+  %vertex_index:ptr<__in, u32, read> = var undef @builtin(vertex_index)
+  %instance_index:ptr<__in, u32, read> = var undef @builtin(instance_index)
 }
 
 %foo = @vertex func():vec4<f32> [@position] {
   $B2: {
     %4:u32 = load %vertex_index
-    %5:u32 = convert %4
-    %6:u32 = load %instance_index
-    %7:u32 = convert %6
-    %8:u32 = add %5, %7
-    %add:u32 = let %8
+    %5:u32 = load %instance_index
+    %6:u32 = add %4, %5
+    %add:u32 = let %6
     ret vec4<f32>(0.0f)
   }
 }
@@ -335,25 +323,23 @@ tint_push_constant_struct = struct @align(4), @block {
 }
 
 $B1: {  # root
-  %vertex_index:ptr<__in, u32, read> = var @builtin(vertex_index)
-  %instance_index:ptr<__in, u32, read> = var @builtin(instance_index)
-  %tint_push_constants:ptr<push_constant, tint_push_constant_struct, read> = var
+  %vertex_index:ptr<__in, u32, read> = var undef @builtin(vertex_index)
+  %instance_index:ptr<__in, u32, read> = var undef @builtin(instance_index)
+  %tint_push_constants:ptr<push_constant, tint_push_constant_struct, read> = var undef
 }
 
 %foo = @vertex func():vec4<f32> [@position] {
   $B2: {
     %5:u32 = load %vertex_index
-    %6:u32 = convert %5
-    %7:ptr<push_constant, u32, read> = access %tint_push_constants, 0u
-    %8:u32 = load %7
-    %9:u32 = add %6, %8
-    %10:u32 = load %instance_index
-    %11:u32 = convert %10
-    %12:ptr<push_constant, u32, read> = access %tint_push_constants, 1u
-    %13:u32 = load %12
-    %14:u32 = add %11, %13
-    %15:u32 = add %9, %14
-    %add:u32 = let %15
+    %6:ptr<push_constant, u32, read> = access %tint_push_constants, 0u
+    %7:u32 = load %6
+    %8:u32 = add %5, %7
+    %9:u32 = load %instance_index
+    %10:ptr<push_constant, u32, read> = access %tint_push_constants, 1u
+    %11:u32 = load %10
+    %12:u32 = add %9, %11
+    %13:u32 = add %8, %12
+    %add:u32 = let %13
     ret vec4<f32>(0.0f)
   }
 }

@@ -29,6 +29,7 @@
 #define SRC_DAWN_NATIVE_SHADERMODULE_H_
 
 #include <bitset>
+#include <limits>
 #include <map>
 #include <memory>
 #include <string>
@@ -133,24 +134,39 @@ struct ShaderModuleEntryPoint {
     std::string name;
 };
 
-MaybeError ValidateAndParseShaderModule(
-    DeviceBase* device,
-    const UnpackedPtr<ShaderModuleDescriptor>& descriptor,
-    const std::vector<tint::wgsl::Extension>& internalExtensions,
-    ShaderModuleParseResult* parseResult,
-    OwnedCompilationMessages* outMessages);
+// Parse a shader module from a validated ShaderModuleDescriptor. Errors are generated only if the
+// shader code itself is invalid.
+MaybeError ParseShaderModule(DeviceBase* device,
+                             const UnpackedPtr<ShaderModuleDescriptor>& descriptor,
+                             const std::vector<tint::wgsl::Extension>& internalExtensions,
+                             ShaderModuleParseResult* parseResult,
+                             OwnedCompilationMessages* outMessages);
+
 MaybeError ValidateCompatibilityWithPipelineLayout(DeviceBase* device,
                                                    const EntryPointMetadata& entryPoint,
                                                    const PipelineLayoutBase* layout);
 
-// Return extent3D with workgroup size dimension info if it is valid. Also validate workgroup_size.x
-// is a multiple of maxSubgroupSizeForFullSubgroups if it holds a value.
+// Return extent3D with workgroup size dimension info if it is valid.
 // width = x, height = y, depthOrArrayLength = z.
 ResultOrError<Extent3D> ValidateComputeStageWorkgroupSize(
     const tint::Program& program,
     const char* entryPointName,
+    bool usesSubgroupMatrix,
+    uint32_t maxSubgroupSize,
     const LimitsForCompilationRequest& limits,
-    std::optional<uint32_t> maxSubgroupSizeForFullSubgroups);
+    const LimitsForCompilationRequest& adaterSupportedlimits);
+
+// Return extent3D with workgroup size dimension info if it is valid.
+// width = x, height = y, depthOrArrayLength = z.
+ResultOrError<Extent3D> ValidateComputeStageWorkgroupSize(
+    uint32_t x,
+    uint32_t y,
+    uint32_t z,
+    size_t workgroupStorageSize,
+    bool usesSubgroupMatrix,
+    uint32_t maxSubgroupSize,
+    const LimitsForCompilationRequest& limits,
+    const LimitsForCompilationRequest& adaterSupportedlimits);
 
 RequiredBufferSizes ComputeRequiredBufferSizesForLayout(const EntryPointMetadata& entryPoint,
                                                         const PipelineLayoutBase* layout);
@@ -206,7 +222,32 @@ struct EntryPointMetadata {
         BindingSlot sampler;
         BindingSlot texture;
     };
-    std::vector<SamplerTexturePair> samplerTexturePairs;
+    // TODO(crbug.com/409438000): Remove the hack of sampler placeholders for non-sampler texture.
+    static constexpr const BindingSlot nonSamplerBindingPoint = {
+        BindGroupIndex(std::numeric_limits<uint32_t>::max()),
+        BindingNumber(std::numeric_limits<uint32_t>::max())};
+    // Contains the reflection information of all sampler and non-sampler texture (storage texture
+    // not included) usage in the entry point. For non-sampler usage, nonSamplerBindingPoint is used
+    // for sampler slot.
+    std::vector<SamplerTexturePair> samplerAndNonSamplerTexturePairs;
+
+    /// Match tint::inspector::Inspector::LevelSampleInfo
+    struct TextureMetadataQuery {
+        /// The information needed to be supplied.
+        enum class TextureQueryType : uint8_t {
+            /// Texture Num Levels
+            TextureNumLevels,
+            /// Texture Num Samples
+            TextureNumSamples,
+        };
+        /// The type of function
+        TextureQueryType type = TextureQueryType::TextureNumLevels;
+        /// The group number
+        uint32_t group = 0;
+        /// The binding number
+        uint32_t binding = 0;
+    };
+    std::vector<TextureMetadataQuery> textureQueries;
 
     // The set of vertex attributes this entryPoint uses.
     PerVertexAttribute<VertexFormatBaseType> vertexInputBaseTypes;
@@ -252,6 +293,9 @@ struct EntryPointMetadata {
         // Then it is required for the pipeline stage to have a constant record to initialize a
         // value
         bool isInitialized;
+
+        // Set to true if the override is used in the entry point
+        bool isUsed = true;
     };
 
     using OverridesMap = absl::flat_hash_map<std::string, Override>;
@@ -281,9 +325,17 @@ struct EntryPointMetadata {
     bool usesSampleIndex = false;
     bool usesVertexIndex = false;
     bool usesTextureLoadWithDepthTexture = false;
+    bool usesDepthTextureWithNonComparisonSampler = false;
+    bool usesSubgroupMatrix = false;
 
     // Immediate Data block byte size
     uint32_t immediateDataRangeByteSize = 0;
+
+    // Number of texture+sampler combinations, computed as
+    // 1 for every texture+sampler combination + 1 for every texture used
+    // without a sampler that wasn't previously counted.
+    // Note: this is only set in compatibility mode.
+    uint32_t numTextureSamplerCombinations = 0;
 };
 
 class ShaderModuleBase : public RefCountedWithExternalCount<ApiObjectBase>,
@@ -300,7 +352,10 @@ class ShaderModuleBase : public RefCountedWithExternalCount<ApiObjectBase>,
                      std::vector<tint::wgsl::Extension> internalExtensions);
     ~ShaderModuleBase() override;
 
-    static Ref<ShaderModuleBase> MakeError(DeviceBase* device, StringView label);
+    static Ref<ShaderModuleBase> MakeError(
+        DeviceBase* device,
+        StringView label,
+        std::unique_ptr<OwnedCompilationMessages> compilationMessages);
 
     ObjectType GetType() const override;
 
@@ -330,25 +385,30 @@ class ShaderModuleBase : public RefCountedWithExternalCount<ApiObjectBase>,
     using ScopedUseTintProgram = APIRef<ShaderModuleBase>;
     ScopedUseTintProgram UseTintProgram();
 
-    Ref<TintProgram> GetTintProgram() const;
-    Ref<TintProgram> GetTintProgramForTesting() const;
-    int GetTintProgramRecreateCountForTesting() const;
+    // Get tintProgram, (re)create it if necessary.
+    Ref<TintProgram> GetTintProgram();
 
-    void APIGetCompilationInfo(wgpu::CompilationInfoCallback callback, void* userdata);
-    Future APIGetCompilationInfoF(const CompilationInfoCallbackInfo& callbackInfo);
-    Future APIGetCompilationInfo2(const WGPUCompilationInfoCallbackInfo2& callbackInfo);
+    Future APIGetCompilationInfo(const WGPUCompilationInfoCallbackInfo& callbackInfo);
 
-    void InjectCompilationMessages(std::unique_ptr<OwnedCompilationMessages> compilationMessages);
     OwnedCompilationMessages* GetCompilationMessages() const;
+    std::string GetCompilationLog() const;
+
+    // Return nullable tintProgram directly without any recreation, can be used for testing the
+    // releasing/recreation behaviors.
+    Ref<TintProgram> GetNullableTintProgramForTesting() const;
+    int GetTintProgramRecreateCountForTesting() const;
 
   protected:
     void DestroyImpl() override;
 
     MaybeError InitializeBase(ShaderModuleParseResult* parseResult,
-                              OwnedCompilationMessages* compilationMessages);
+                              std::unique_ptr<OwnedCompilationMessages>* compilationMessages);
 
   private:
-    ShaderModuleBase(DeviceBase* device, ObjectBase::ErrorTag tag, StringView label);
+    ShaderModuleBase(DeviceBase* device,
+                     ObjectBase::ErrorTag tag,
+                     StringView label,
+                     std::unique_ptr<OwnedCompilationMessages> compilationMessages);
 
     void WillDropLastExternalRef() override;
 
@@ -367,7 +427,8 @@ class ShaderModuleBase : public RefCountedWithExternalCount<ApiObjectBase>,
     PerStage<size_t> mEntryPointCounts;
 
     struct TintData {
-        Ref<TintProgram> tintProgram;
+        // tintProgram is nullable so that it can be lazily (re)generated right before actual using.
+        Ref<TintProgram> tintProgram = nullptr;
         int tintProgramRecreateCount = 0;
     };
     MutexProtected<TintData> mTintData;

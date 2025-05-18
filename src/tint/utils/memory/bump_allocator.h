@@ -32,11 +32,20 @@
 #include <array>
 #include <cstddef>
 #include <cstring>
+#include <new>
 #include <utility>
 
 #include "src/tint/utils/macros/compiler.h"
 #include "src/tint/utils/math/math.h"
 #include "src/tint/utils/memory/bitcast.h"
+
+// This file implements a custom allocator & iterator using C-style data access. It is not
+// unexpected that -Wunsafe-buffer-usage triggers in this code, since the type of dynamic access
+// being used cannot be guaranteed to be safe via static analysis. Attempting to change this code in
+// simple ways to quiet these errors either a) negatively affects the performance by introducing
+// unneeded copes, or b) uses typing shenanigans to work around the warning that other
+// linters/analyses are unhappy with.
+TINT_BEGIN_DISABLE_WARNING(UNSAFE_BUFFER_USAGE);
 
 namespace tint {
 
@@ -143,5 +152,7 @@ class BumpAllocator {
 };
 
 }  // namespace tint
+
+TINT_END_DISABLE_WARNING(UNSAFE_BUFFER_USAGE);
 
 #endif  // SRC_TINT_UTILS_MEMORY_BUMP_ALLOCATOR_H_

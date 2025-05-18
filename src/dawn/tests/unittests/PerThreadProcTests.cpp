@@ -44,8 +44,8 @@ class PerThreadProcTests : public testing::Test {
     PerThreadProcTests()
         : mNativeInstance(native::APICreateInstance(nullptr)),
           mAdapterBase(mNativeInstance.Get(),
-                       AcquireRef(new native::null::PhysicalDevice()),
-                       native::FeatureLevel::Core,
+                       native::null::PhysicalDevice::Create(),
+                       wgpu::FeatureLevel::Core,
                        native::TogglesState(native::ToggleStage::Adapter),
                        wgpu::PowerPreference::Undefined) {}
     ~PerThreadProcTests() override = default;

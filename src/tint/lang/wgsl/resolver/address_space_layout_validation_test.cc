@@ -597,140 +597,7 @@ TEST_F(ResolverAddressSpaceLayoutValidationTest, PushConstant_Aligned) {
     ASSERT_TRUE(r()->Resolve()) << r()->error();
 }
 
-TEST_F(ResolverAddressSpaceLayoutValidationTest, RelaxedUniformLayout_StructMemberOffset_Struct) {
-    // enable chromium_internal_relaxed_uniform_layout;
-    //
-    // struct Inner {
-    //   scalar : i32;
-    // };
-    //
-    // struct Outer {
-    //   scalar : f32;
-    //   inner : Inner;
-    // };
-    //
-    // @group(0) @binding(0)
-    // var<uniform> a : Outer;
-
-    Enable(wgsl::Extension::kChromiumInternalRelaxedUniformLayout);
-
-    Structure("Inner", Vector{
-                           Member("scalar", ty.i32()),
-                       });
-
-    Structure("Outer", Vector{
-                           Member("scalar", ty.f32()),
-                           Member("inner", ty("Inner")),
-                       });
-
-    GlobalVar("a", ty("Outer"), core::AddressSpace::kUniform, Group(0_a), Binding(0_a));
-
-    EXPECT_TRUE(r()->Resolve()) << r()->error();
-}
-
-TEST_F(ResolverAddressSpaceLayoutValidationTest, RelaxedUniformLayout_StructMemberOffset_Array) {
-    // enable chromium_internal_relaxed_uniform_layout;
-    //
-    // type Inner = @stride(16) array<f32, 10u>;
-    //
-    // struct Outer {
-    //   scalar : f32;
-    //   inner : Inner;
-    // };
-    //
-    // @group(0) @binding(0)
-    // var<uniform> a : Outer;
-
-    Enable(wgsl::Extension::kChromiumInternalRelaxedUniformLayout);
-
-    Alias("Inner", ty.array<f32, 10>(Vector{Stride(16)}));
-
-    Structure("Outer", Vector{
-                           Member("scalar", ty.f32()),
-                           Member("inner", ty("Inner")),
-                       });
-
-    GlobalVar("a", ty("Outer"), core::AddressSpace::kUniform, Group(0_a), Binding(0_a));
-
-    EXPECT_TRUE(r()->Resolve()) << r()->error();
-}
-
-TEST_F(ResolverAddressSpaceLayoutValidationTest, RelaxedUniformLayout_MemberOffsetNotMutipleOf16) {
-    // enable chromium_internal_relaxed_uniform_layout;
-    //
-    // struct Inner {
-    //   @align(4) @size(5) scalar : i32;
-    // };
-    //
-    // struct Outer {
-    //   inner : Inner;
-    //   scalar : i32;
-    // };
-    //
-    // @group(0) @binding(0)
-    // var<uniform> a : Outer;
-
-    Enable(wgsl::Extension::kChromiumInternalRelaxedUniformLayout);
-
-    Structure("Inner", Vector{
-                           Member("scalar", ty.i32(), Vector{MemberAlign(4_i), MemberSize(5_a)}),
-                       });
-
-    Structure("Outer", Vector{
-                           Member("inner", ty("Inner")),
-                           Member("scalar", ty.i32()),
-                       });
-
-    GlobalVar("a", ty("Outer"), core::AddressSpace::kUniform, Group(0_a), Binding(0_a));
-
-    EXPECT_TRUE(r()->Resolve()) << r()->error();
-}
-
-TEST_F(ResolverAddressSpaceLayoutValidationTest, RelaxedUniformLayout_ArrayStride_Scalar) {
-    // enable chromium_internal_relaxed_uniform_layout;
-    //
-    // struct Outer {
-    //   arr : array<f32, 10u>;
-    // };
-    //
-    // @group(0) @binding(0)
-    // var<uniform> a : Outer;
-
-    Enable(wgsl::Extension::kChromiumInternalRelaxedUniformLayout);
-
-    Structure("Outer", Vector{
-                           Member("arr", ty.array<f32, 10>()),
-                       });
-
-    GlobalVar("a", ty("Outer"), core::AddressSpace::kUniform, Group(0_a), Binding(0_a));
-
-    EXPECT_TRUE(r()->Resolve()) << r()->error();
-}
-
-TEST_F(ResolverAddressSpaceLayoutValidationTest, RelaxedUniformLayout_ArrayStride_Vech) {
-    // enable f16;
-    // enable chromium_internal_relaxed_uniform_layout;
-    //
-    // struct Outer {
-    //   arr : array<vec3<f16>, 10u>;
-    // };
-    //
-    // @group(0) @binding(0)
-    // var<uniform> a : Outer;
-
-    Enable(wgsl::Extension::kF16);
-    Enable(wgsl::Extension::kChromiumInternalRelaxedUniformLayout);
-
-    Structure("Outer", Vector{
-                           Member("arr", ty.array<vec3<f16>, 10>()),
-                       });
-
-    GlobalVar("a", ty("Outer"), core::AddressSpace::kUniform, Group(0_a), Binding(0_a));
-
-    EXPECT_TRUE(r()->Resolve()) << r()->error();
-}
-
-TEST_F(ResolverAddressSpaceLayoutValidationTest, AlignAttributeTooSmall) {
+TEST_F(ResolverAddressSpaceLayoutValidationTest, AlignAttributeTooSmall_Storage) {
     // struct S {
     //   @align(4) vector : vec4u;
     //   scalar : u32;
@@ -752,6 +619,74 @@ TEST_F(ResolverAddressSpaceLayoutValidationTest, AlignAttributeTooSmall) {
         r()->error(),
         R"(12:34 error: alignment must be a multiple of '16' bytes for the 'storage' address space
 56:78 note: 'S' used in address space 'storage' here)");
+}
+
+TEST_F(ResolverAddressSpaceLayoutValidationTest, AlignAttributeTooSmall_Workgroup) {
+    // struct S {
+    //   @align(4) vector : vec4u;
+    //   scalar : u32;
+    // };
+    //
+    // var<workgroup> a : array<S, 4>;
+    Structure(
+        "S", Vector{
+                 Member("vector", ty.vec4<u32>(), Vector{MemberAlign(Expr(Source{{12, 34}}, 4_a))}),
+                 Member("scalar", ty.u32()),
+             });
+
+    GlobalVar(Source{{56, 78}}, "a", ty("S"), core::AddressSpace::kWorkgroup, Group(0_a));
+
+    ASSERT_FALSE(r()->Resolve());
+    EXPECT_EQ(
+        r()->error(),
+        R"(12:34 error: alignment must be a multiple of '16' bytes for the 'workgroup' address space
+56:78 note: 'S' used in address space 'workgroup' here)");
+}
+
+TEST_F(ResolverAddressSpaceLayoutValidationTest, AlignAttributeTooSmall_Private) {
+    // struct S {
+    //   @align(4) vector : vec4u;
+    //   scalar : u32;
+    // };
+    //
+    // var<private> a : array<S, 4>;
+    Structure(
+        "S", Vector{
+                 Member("vector", ty.vec4<u32>(), Vector{MemberAlign(Expr(Source{{12, 34}}, 4_a))}),
+                 Member("scalar", ty.u32()),
+             });
+
+    GlobalVar(Source{{56, 78}}, "a", ty("S"), core::AddressSpace::kPrivate, Group(0_a));
+
+    ASSERT_FALSE(r()->Resolve());
+    EXPECT_EQ(
+        r()->error(),
+        R"(12:34 error: alignment must be a multiple of '16' bytes for the 'private' address space
+56:78 note: 'S' used in address space 'private' here)");
+}
+
+TEST_F(ResolverAddressSpaceLayoutValidationTest, AlignAttributeTooSmall_Function) {
+    // struct S {
+    //   @align(4) vector : vec4u;
+    //   scalar : u32;
+    // };
+    //
+    // fn foo() {
+    //   var a : array<S, 4>;
+    // }
+    Structure(
+        "S", Vector{
+                 Member("vector", ty.vec4<u32>(), Vector{MemberAlign(Expr(Source{{12, 34}}, 4_a))}),
+                 Member("scalar", ty.u32()),
+             });
+
+    GlobalVar(Source{{56, 78}}, "a", ty("S"), core::AddressSpace::kFunction, Group(0_a));
+
+    ASSERT_FALSE(r()->Resolve());
+    EXPECT_EQ(
+        r()->error(),
+        R"(12:34 error: alignment must be a multiple of '16' bytes for the 'function' address space
+56:78 note: 'S' used in address space 'function' here)");
 }
 
 }  // namespace

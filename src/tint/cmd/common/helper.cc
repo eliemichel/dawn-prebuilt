@@ -46,11 +46,11 @@
 #endif
 
 #include "src/tint/utils/diagnostic/formatter.h"
+#include "src/tint/utils/rtti/traits.h"
 #include "src/tint/utils/text/string.h"
 #include "src/tint/utils/text/styled_text.h"
 #include "src/tint/utils/text/styled_text_printer.h"
 #include "src/tint/utils/text/text_style.h"
-#include "src/tint/utils/traits/traits.h"
 
 namespace tint::cmd {
 namespace {
@@ -125,8 +125,7 @@ tint::Program ReadSpirv(const std::vector<uint32_t>& data, const LoadProgramOpti
         writer_options.allowed_features = opts.spirv_reader_options.allowed_features;
         auto prog_result = tint::wgsl::writer::ProgramFromIR(result.Get(), writer_options);
         if (prog_result != Success) {
-            std::cerr << "Failed to convert IR to Program:\n\n"
-                      << prog_result.Failure().reason << "\n";
+            std::cerr << "Failed to convert IR to Program:\n\n" << prog_result.Failure() << "\n";
             exit(1);
         }
 
@@ -142,21 +141,6 @@ tint::Program ReadSpirv(const std::vector<uint32_t>& data, const LoadProgramOpti
 #endif  // TINT_BUILD_SPV_READER
 
 }  // namespace
-
-void TintInternalCompilerErrorReporter(const InternalCompilerError& err) {
-    auto printer = StyledTextPrinter::Create(stderr);
-    StyledText msg;
-    msg << (style::Error + style::Bold) << err.Error();
-    msg << R"(
-********************************************************************
-*  The tint shader compiler has encountered an unexpected error.   *
-*                                                                  *
-*  Please help us fix this issue by submitting a bug report at     *
-*  crbug.com/tint with the source program that triggered the bug.  *
-********************************************************************
-)";
-    printer->Print(msg);
-}
 
 void PrintWGSL(std::ostream& out, const tint::Program& program) {
 #if TINT_BUILD_WGSL_WRITER
@@ -575,6 +559,10 @@ std::string OverrideTypeToString(tint::inspector::Override::Type type) {
             return "i32";
     }
     return "unknown";
+}
+
+bool IsStdout(const std::string& name) {
+    return name.empty() || name == "-";
 }
 
 }  // namespace tint::cmd

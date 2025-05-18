@@ -121,12 +121,6 @@ config("tint_public_config") {
     defines += [ "TINT_BUILD_IR_BINARY=0" ]
   }
 
-  if (tint_build_ir_fuzzer) {
-    defines += [ "TINT_BUILD_IR_FUZZER=1" ]
-  } else {
-    defines += [ "TINT_BUILD_IR_FUZZER=0" ]
-  }
-
   if (tint_build_is_win) {
     defines += [ "TINT_BUILD_IS_WIN=1" ]
   } else {
@@ -143,6 +137,12 @@ config("tint_public_config") {
     defines += [ "TINT_BUILD_IS_LINUX=1" ]
   } else {
     defines += [ "TINT_BUILD_IS_LINUX=0" ]
+  }
+
+  if (tint_enable_ir_validation) {
+    defines += [ "TINT_ENABLE_IR_VALIDATION=1" ]
+  } else {
+    defines += [ "TINT_ENABLE_IR_VALIDATION=0" ]
   }
 
   include_dirs = [
@@ -279,7 +279,7 @@ group("abseil") {
   if (build_with_chromium || build_with_angle) {
     public_deps = [ "$dawn_abseil_dir:absl" ]
   } else {
-    public_deps = [ "${dawn_root}/third_party/gn/abseil-cpp:strings" ]
+    public_deps = [ "${dawn_abseil_dir}/absl/strings" ]
   }
 }
 
@@ -306,32 +306,35 @@ source_set("dxcompiler-for-fuzzer") {
 ###############################################################################
 if (tint_has_fuzzers) {
   action("tint_generate_wgsl_corpus") {
-    script = "${tint_src_dir}/cmd/fuzz/wgsl/generate_wgsl_corpus.py"
+    testonly = true
+    script = "${tint_src_dir}/cmd/fuzz/generate_tint_corpus.py"
     sources = [ "${script}" ]
+    deps = []
     args = [
-      "--stamp=" + rebase_path(fuzzer_corpus_wgsl_stamp, root_build_dir),
       rebase_path("${tint_root_dir}/test", root_build_dir),
-      rebase_path(fuzzer_corpus_wgsl_dir, root_build_dir),
+      rebase_path(fuzzer_corpus_dir, root_build_dir),
     ]
     outputs = [ fuzzer_corpus_wgsl_stamp ]
   }
-
-  if (tint_build_ir_fuzzer) {
-    if (tint_build_cmds && tint_build_wgsl_reader && tint_build_ir_binary) {
-      action("tint_generate_ir_corpus") {
-        script = "${tint_src_dir}/cmd/fuzz/ir/generate_ir_corpus.py"
-        sources = [ "${script}" ]
-        deps = [ "${tint_src_dir}/cmd/fuzz/ir/as" ]
-        args = [
-          "--stamp=" + rebase_path(fuzzer_corpus_ir_stamp, root_build_dir),
-          rebase_path("${root_build_dir}/ir_fuzz_as", root_build_dir),
-          rebase_path("${tint_root_dir}/test", root_build_dir),
-          rebase_path(fuzzer_corpus_ir_dir, root_build_dir),
-        ]
-        outputs = [ fuzzer_corpus_ir_stamp ]
-      }
-    }
-  }
+  # TODO(409348527): Re-enable corpus generation
+  # if (tint_build_ir_binary && tint_build_wgsl_reader) {
+  #   action("tint_generate_ir_corpus") {
+  #     testonly = true
+  #     script = "${tint_src_dir}/cmd/fuzz/generate_tint_corpus.py"
+  #     sources = [ "${script}" ]
+  #     deps = [
+  #       ":tint_generate_wgsl_corpus",
+  #       "${tint_src_dir}/cmd/fuzz/ir/as",
+  #     ]
+  #     args = [
+  #       rebase_path(fuzzer_corpus_wgsl_dir, root_build_dir),
+  #       rebase_path(fuzzer_corpus_dir, root_build_dir),
+  #       "--ir_as=" +
+  #           rebase_path("${root_build_dir}/ir_fuzz_as", root_build_dir),
+  #     ]
+  #     outputs = [ fuzzer_corpus_ir_stamp ]
+  #   }
+  # }
 }
 
 ###############################################################################
@@ -346,14 +349,13 @@ group("cmds") {
   if (tint_build_cmds) {
     deps += [
       "${tint_src_dir}/cmd/info",
-      "${tint_src_dir}/cmd/remote_compile",
       "${tint_src_dir}/cmd/tint",
     ]
   }
   if (tint_build_tintd) {
     deps += [ "${tint_src_dir}/cmd/tintd" ]
   }
-  if (tint_build_ir_fuzzer && tint_build_ir_binary) {
+  if (tint_has_fuzzers && tint_build_ir_binary) {
     if (tint_build_wgsl_reader) {
       deps += [ "${tint_src_dir}/cmd/fuzz/ir/as" ]
     }
@@ -368,10 +370,9 @@ group("fuzzers") {
   deps = []
   if (tint_has_fuzzers) {
     deps += [ "${tint_src_dir}/cmd/fuzz/wgsl" ]
-  }
-
-  if (tint_build_ir_fuzzer && (!is_asan || build_with_chromium)) {
-    deps += [ "${tint_src_dir}/cmd/fuzz/ir" ]
+    if (tint_build_ir_binary) {
+      deps += [ "${tint_src_dir}/cmd/fuzz/ir" ]
+    }
   }
 }
 
@@ -379,7 +380,7 @@ group("tests") {
   testonly = true
   deps = []
   if (tint_build_unittests) {
-    deps += [ "${tint_src_dir}/cmd/test:test_cmd" ]
+    deps += [ "${tint_src_dir}/cmd/test:tint_unittests" ]
   }
 }
 
@@ -389,12 +390,4 @@ group("benchmarks") {
   if (tint_build_benchmarks && tint_build_wgsl_reader) {
     deps += [ "${tint_src_dir}/cmd/bench:bench_cmd" ]
   }
-}
-
-###############################################################################
-# Aliases
-###############################################################################
-group("tint_unittests") {
-  testonly = true
-  public_deps = [ ":tests" ]
 }

@@ -60,9 +60,11 @@ PipelineLayout::PipelineLayout(Device* device,
                         case wgpu::BufferBindingType::Storage:
                         case kInternalStorageBufferBinding:
                         case wgpu::BufferBindingType::ReadOnlyStorage:
+                        case kInternalReadOnlyStorageBufferBinding:
                             mIndexInfo[group][bindingIndex] = ssboIndex;
                             ssboIndex++;
                             break;
+                        case wgpu::BufferBindingType::BindingNotUsed:
                         case wgpu::BufferBindingType::Undefined:
                             DAWN_UNREACHABLE();
                     }
@@ -89,9 +91,12 @@ PipelineLayout::PipelineLayout(Device* device,
 
     mNumSamplers = samplerIndex;
     mNumSampledTextures = sampledTextureIndex;
+    mNumSSBO = ssboIndex;
 
-    // Set internal uniform binding as the next unused uboIndex.
-    mInternalUniformBinding = uboIndex;
+    // Set internal uniform bindings as the next unused uboIndex.
+    mInternalTextureBuiltinsUniformBinding = uboIndex;
+    uboIndex++;
+    mInternalArrayLengthUniformBinding = uboIndex;
 }
 
 const PipelineLayout::BindingIndexInfo& PipelineLayout::GetBindingIndexInfo() const {
@@ -110,8 +115,16 @@ size_t PipelineLayout::GetNumSampledTextures() const {
     return mNumSampledTextures;
 }
 
-GLuint PipelineLayout::GetInternalUniformBinding() const {
-    return mInternalUniformBinding;
+size_t PipelineLayout::GetNumSSBO() const {
+    return mNumSSBO;
+}
+
+GLuint PipelineLayout::GetInternalTextureBuiltinsUniformBinding() const {
+    return mInternalTextureBuiltinsUniformBinding;
+}
+
+GLuint PipelineLayout::GetInternalArrayLengthUniformBinding() const {
+    return mInternalArrayLengthUniformBinding;
 }
 
 }  // namespace dawn::native::opengl

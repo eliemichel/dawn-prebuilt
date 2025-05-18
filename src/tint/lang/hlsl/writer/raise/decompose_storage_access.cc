@@ -34,7 +34,6 @@
 #include "src/tint/lang/hlsl/builtin_fn.h"
 #include "src/tint/lang/hlsl/ir/member_builtin_call.h"
 #include "src/tint/lang/hlsl/type/byte_address_buffer.h"
-#include "src/tint/utils/result/result.h"
 
 namespace tint::hlsl::writer::raise {
 namespace {
@@ -71,7 +70,7 @@ struct State {
             }
 
             // Var must be a pointer
-            auto* var_ty = var->Result(0)->Type()->As<core::type::Pointer>();
+            auto* var_ty = var->Result()->Type()->As<core::type::Pointer>();
             TINT_ASSERT(var_ty);
 
             // Only care about storage address space variables.
@@ -83,7 +82,7 @@ struct State {
         }
 
         for (auto* var : var_worklist) {
-            auto* result = var->Result(0);
+            auto* result = var->Result();
 
             // Find all the usages of the `var` which is loading or storing.
             Vector<core::ir::Instruction*, 4> usage_worklist;
@@ -132,14 +131,8 @@ struct State {
                     inst,
                     [&](core::ir::LoadVectorElement* l) { LoadVectorElement(l, var, var_ty); },
                     [&](core::ir::StoreVectorElement* s) { StoreVectorElement(s, var, var_ty); },
-                    [&](core::ir::Store* s) {
-                        OffsetData offset{};
-                        Store(s, var, s->From(), offset);
-                    },
-                    [&](core::ir::Load* l) {
-                        OffsetData offset{};
-                        Load(l, var, offset);
-                    },
+                    [&](core::ir::Store* s) { Store(s, var, s->From(), {}); },
+                    [&](core::ir::Load* l) { Load(l, var, {}); },
                     [&](core::ir::Access* a) {
                         OffsetData offset{};
                         Access(a, var, a->Object()->Type(), offset);
@@ -148,10 +141,10 @@ struct State {
                         // The `let` is, essentially, an alias for the `var` as it's assigned
                         // directly. Gather all the `let` usages into our worklist, and then replace
                         // the `let` with the `var` itself.
-                        for (auto& usage : let->Result(0)->UsagesSorted()) {
+                        for (auto& usage : let->Result()->UsagesSorted()) {
                             usage_worklist.Push(usage.instruction);
                         }
-                        let->Result(0)->ReplaceAllUsesWith(result);
+                        let->Result()->ReplaceAllUsesWith(result);
                         let->Destroy();
                     },
                     [&](core::ir::CoreBuiltinCall* call) {
@@ -160,37 +153,37 @@ struct State {
                                 ArrayLength(var, call, var_ty->StoreType(), 0);
                                 break;
                             case core::BuiltinFn::kAtomicAnd:
-                                AtomicAnd(var, call, 0);
+                                AtomicAnd(var, call, {});
                                 break;
                             case core::BuiltinFn::kAtomicOr:
-                                AtomicOr(var, call, 0);
+                                AtomicOr(var, call, {});
                                 break;
                             case core::BuiltinFn::kAtomicXor:
-                                AtomicXor(var, call, 0);
+                                AtomicXor(var, call, {});
                                 break;
                             case core::BuiltinFn::kAtomicMin:
-                                AtomicMin(var, call, 0);
+                                AtomicMin(var, call, {});
                                 break;
                             case core::BuiltinFn::kAtomicMax:
-                                AtomicMax(var, call, 0);
+                                AtomicMax(var, call, {});
                                 break;
                             case core::BuiltinFn::kAtomicAdd:
-                                AtomicAdd(var, call, 0);
+                                AtomicAdd(var, call, {});
                                 break;
                             case core::BuiltinFn::kAtomicSub:
-                                AtomicSub(var, call, 0);
+                                AtomicSub(var, call, {});
                                 break;
                             case core::BuiltinFn::kAtomicExchange:
-                                AtomicExchange(var, call, 0);
+                                AtomicExchange(var, call, {});
                                 break;
                             case core::BuiltinFn::kAtomicCompareExchangeWeak:
-                                AtomicCompareExchangeWeak(var, call, 0);
+                                AtomicCompareExchangeWeak(var, call, {});
                                 break;
                             case core::BuiltinFn::kAtomicStore:
-                                AtomicStore(var, call, 0);
+                                AtomicStore(var, call, {});
                                 break;
                             case core::BuiltinFn::kAtomicLoad:
-                                AtomicLoad(var, call, 0);
+                                AtomicLoad(var, call, {});
                                 break;
                             default:
                                 TINT_UNREACHABLE();
@@ -221,128 +214,14 @@ struct State {
             // the correct `var` name.
             core::ir::Instruction* inst = b.Var(ty.ptr(function, ty.u32()));
             b.MemberCall<hlsl::ir::MemberBuiltinCall>(ty.void_(), BuiltinFn::kGetDimensions, var,
-                                                      inst->Result(0));
+                                                      inst->Result());
 
             inst = b.Load(inst);
             if (offset > 0) {
                 inst = b.Subtract(ty.u32(), inst, u32(offset));
             }
             auto* div = b.Divide(ty.u32(), inst, u32(arr_ty->Stride()));
-            call->Result(0)->ReplaceAllUsesWith(div->Result(0));
-        });
-        call->Destroy();
-    }
-
-    void Interlocked(core::ir::Var* var,
-                     core::ir::CoreBuiltinCall* call,
-                     uint32_t offset,
-                     BuiltinFn fn) {
-        auto args = call->Args();
-        auto* type = args[1]->Type();
-
-        b.InsertBefore(call, [&] {
-            auto* original_value = b.Var(ty.ptr(function, type));
-            original_value->SetInitializer(b.Zero(type));
-
-            b.MemberCall<hlsl::ir::MemberBuiltinCall>(
-                ty.void_(), fn, var, b.Convert(type, u32(offset)), args[1], original_value);
-            b.LoadWithResult(call->DetachResult(), original_value);
-        });
-        call->Destroy();
-    }
-
-    void AtomicAnd(core::ir::Var* var, core::ir::CoreBuiltinCall* call, uint32_t offset) {
-        Interlocked(var, call, offset, BuiltinFn::kInterlockedAnd);
-    }
-
-    void AtomicOr(core::ir::Var* var, core::ir::CoreBuiltinCall* call, uint32_t offset) {
-        Interlocked(var, call, offset, BuiltinFn::kInterlockedOr);
-    }
-
-    void AtomicXor(core::ir::Var* var, core::ir::CoreBuiltinCall* call, uint32_t offset) {
-        Interlocked(var, call, offset, BuiltinFn::kInterlockedXor);
-    }
-
-    void AtomicMin(core::ir::Var* var, core::ir::CoreBuiltinCall* call, uint32_t offset) {
-        Interlocked(var, call, offset, BuiltinFn::kInterlockedMin);
-    }
-
-    void AtomicMax(core::ir::Var* var, core::ir::CoreBuiltinCall* call, uint32_t offset) {
-        Interlocked(var, call, offset, BuiltinFn::kInterlockedMax);
-    }
-
-    void AtomicAdd(core::ir::Var* var, core::ir::CoreBuiltinCall* call, uint32_t offset) {
-        Interlocked(var, call, offset, BuiltinFn::kInterlockedAdd);
-    }
-
-    void AtomicExchange(core::ir::Var* var, core::ir::CoreBuiltinCall* call, uint32_t offset) {
-        Interlocked(var, call, offset, BuiltinFn::kInterlockedExchange);
-    }
-
-    // An atomic sub is a negated atomic add
-    void AtomicSub(core::ir::Var* var, core::ir::CoreBuiltinCall* call, uint32_t offset) {
-        auto args = call->Args();
-        auto* type = args[1]->Type();
-
-        b.InsertBefore(call, [&] {
-            auto* original_value = b.Var(ty.ptr(function, type));
-            original_value->SetInitializer(b.Zero(type));
-
-            auto* val = b.Subtract(type, b.Zero(type), args[1]);
-            b.MemberCall<hlsl::ir::MemberBuiltinCall>(ty.void_(), BuiltinFn::kInterlockedAdd, var,
-                                                      b.Convert(type, u32(offset)), val,
-                                                      original_value);
-            b.LoadWithResult(call->DetachResult(), original_value);
-        });
-        call->Destroy();
-    }
-
-    void AtomicCompareExchangeWeak(core::ir::Var* var,
-                                   core::ir::CoreBuiltinCall* call,
-                                   uint32_t offset) {
-        auto args = call->Args();
-        auto* type = args[1]->Type();
-        b.InsertBefore(call, [&] {
-            auto* original_value = b.Var(ty.ptr(function, type));
-            original_value->SetInitializer(b.Zero(type));
-
-            auto* cmp = args[1];
-            b.MemberCall<hlsl::ir::MemberBuiltinCall>(
-                ty.void_(), BuiltinFn::kInterlockedCompareExchange, var,
-                b.Convert(type, u32(offset)), cmp, args[2], original_value);
-
-            auto* o = b.Load(original_value);
-            b.ConstructWithResult(call->DetachResult(), o, b.Equal(ty.bool_(), o, cmp));
-        });
-        call->Destroy();
-    }
-
-    // An atomic load is an Or with 0
-    void AtomicLoad(core::ir::Var* var, core::ir::CoreBuiltinCall* call, uint32_t offset) {
-        auto* type = call->Result(0)->Type();
-        b.InsertBefore(call, [&] {
-            auto* original_value = b.Var(ty.ptr(function, type));
-            original_value->SetInitializer(b.Zero(type));
-
-            b.MemberCall<hlsl::ir::MemberBuiltinCall>(ty.void_(), BuiltinFn::kInterlockedOr, var,
-                                                      b.Convert(type, u32(offset)), b.Zero(type),
-                                                      original_value);
-            b.LoadWithResult(call->DetachResult(), original_value);
-        });
-        call->Destroy();
-    }
-
-    void AtomicStore(core::ir::Var* var, core::ir::CoreBuiltinCall* call, uint32_t offset) {
-        auto args = call->Args();
-        auto* type = args[1]->Type();
-
-        b.InsertBefore(call, [&] {
-            auto* original_value = b.Var(ty.ptr(function, type));
-            original_value->SetInitializer(b.Zero(type));
-
-            b.MemberCall<hlsl::ir::MemberBuiltinCall>(ty.void_(), BuiltinFn::kInterlockedExchange,
-                                                      var, b.Convert(type, u32(offset)), args[1],
-                                                      original_value);
+            call->Result()->ReplaceAllUsesWith(div->Result());
         });
         call->Destroy();
     }
@@ -352,6 +231,125 @@ struct State {
         Vector<core::ir::Value*, 4> expr{};
     };
 
+    void Interlocked(core::ir::Var* var,
+                     core::ir::CoreBuiltinCall* call,
+                     const OffsetData& offset,
+                     BuiltinFn fn) {
+        auto args = call->Args();
+        auto* type = args[1]->Type();
+
+        b.InsertBefore(call, [&] {
+            auto* original_value = b.Var(ty.ptr(function, type));
+            original_value->SetInitializer(b.Zero(type));
+
+            b.MemberCall<hlsl::ir::MemberBuiltinCall>(
+                ty.void_(), fn, var, b.InsertConvertIfNeeded(type, OffsetToValue(offset)), args[1],
+                original_value);
+            b.LoadWithResult(call->DetachResult(), original_value);
+        });
+        call->Destroy();
+    }
+
+    void AtomicAnd(core::ir::Var* var, core::ir::CoreBuiltinCall* call, const OffsetData& offset) {
+        Interlocked(var, call, offset, BuiltinFn::kInterlockedAnd);
+    }
+
+    void AtomicOr(core::ir::Var* var, core::ir::CoreBuiltinCall* call, const OffsetData& offset) {
+        Interlocked(var, call, offset, BuiltinFn::kInterlockedOr);
+    }
+
+    void AtomicXor(core::ir::Var* var, core::ir::CoreBuiltinCall* call, const OffsetData& offset) {
+        Interlocked(var, call, offset, BuiltinFn::kInterlockedXor);
+    }
+
+    void AtomicMin(core::ir::Var* var, core::ir::CoreBuiltinCall* call, const OffsetData& offset) {
+        Interlocked(var, call, offset, BuiltinFn::kInterlockedMin);
+    }
+
+    void AtomicMax(core::ir::Var* var, core::ir::CoreBuiltinCall* call, const OffsetData& offset) {
+        Interlocked(var, call, offset, BuiltinFn::kInterlockedMax);
+    }
+
+    void AtomicAdd(core::ir::Var* var, core::ir::CoreBuiltinCall* call, const OffsetData& offset) {
+        Interlocked(var, call, offset, BuiltinFn::kInterlockedAdd);
+    }
+
+    void AtomicExchange(core::ir::Var* var,
+                        core::ir::CoreBuiltinCall* call,
+                        const OffsetData& offset) {
+        Interlocked(var, call, offset, BuiltinFn::kInterlockedExchange);
+    }
+
+    // An atomic sub is a negated atomic add
+    void AtomicSub(core::ir::Var* var, core::ir::CoreBuiltinCall* call, const OffsetData& offset) {
+        auto args = call->Args();
+        auto* type = args[1]->Type();
+
+        b.InsertBefore(call, [&] {
+            auto* original_value = b.Var(ty.ptr(function, type));
+            original_value->SetInitializer(b.Zero(type));
+
+            auto* val = b.Subtract(type, b.Zero(type), args[1]);
+            b.MemberCall<hlsl::ir::MemberBuiltinCall>(
+                ty.void_(), BuiltinFn::kInterlockedAdd, var,
+                b.InsertConvertIfNeeded(type, OffsetToValue(offset)), val, original_value);
+            b.LoadWithResult(call->DetachResult(), original_value);
+        });
+        call->Destroy();
+    }
+
+    void AtomicCompareExchangeWeak(core::ir::Var* var,
+                                   core::ir::CoreBuiltinCall* call,
+                                   const OffsetData& offset) {
+        auto args = call->Args();
+        auto* type = args[1]->Type();
+        b.InsertBefore(call, [&] {
+            auto* original_value = b.Var(ty.ptr(function, type));
+            original_value->SetInitializer(b.Zero(type));
+
+            auto* cmp = args[1];
+            b.MemberCall<hlsl::ir::MemberBuiltinCall>(
+                ty.void_(), BuiltinFn::kInterlockedCompareExchange, var,
+                b.InsertConvertIfNeeded(type, OffsetToValue(offset)), cmp, args[2], original_value);
+
+            auto* o = b.Load(original_value);
+            b.ConstructWithResult(call->DetachResult(), o, b.Equal(ty.bool_(), o, cmp));
+        });
+        call->Destroy();
+    }
+
+    // An atomic load is an Or with 0
+    void AtomicLoad(core::ir::Var* var, core::ir::CoreBuiltinCall* call, const OffsetData& offset) {
+        auto* type = call->Result()->Type();
+        b.InsertBefore(call, [&] {
+            auto* original_value = b.Var(ty.ptr(function, type));
+            original_value->SetInitializer(b.Zero(type));
+
+            b.MemberCall<hlsl::ir::MemberBuiltinCall>(
+                ty.void_(), BuiltinFn::kInterlockedOr, var,
+                b.InsertConvertIfNeeded(type, OffsetToValue(offset)), b.Zero(type), original_value);
+            b.LoadWithResult(call->DetachResult(), original_value);
+        });
+        call->Destroy();
+    }
+
+    void AtomicStore(core::ir::Var* var,
+                     core::ir::CoreBuiltinCall* call,
+                     const OffsetData& offset) {
+        auto args = call->Args();
+        auto* type = args[1]->Type();
+
+        b.InsertBefore(call, [&] {
+            auto* original_value = b.Var(ty.ptr(function, type));
+            original_value->SetInitializer(b.Zero(type));
+
+            b.MemberCall<hlsl::ir::MemberBuiltinCall>(
+                ty.void_(), BuiltinFn::kInterlockedExchange, var,
+                b.InsertConvertIfNeeded(type, OffsetToValue(offset)), args[1], original_value);
+        });
+        call->Destroy();
+    }
+
     // Note, must be called inside a builder insert block (Append, InsertBefore, etc)
     void UpdateOffsetData(core::ir::Value* v, uint32_t elm_size, OffsetData* offset) {
         tint::Switch(
@@ -360,17 +358,20 @@ struct State {
                 offset->byte_offset += idx_value->Value()->ValueAs<uint32_t>() * elm_size;
             },
             [&](core::ir::Value* val) {
-                offset->expr.Push(
-                    b.Multiply(ty.u32(), b.Convert(ty.u32(), val), u32(elm_size))->Result(0));
+                auto* idx = val;
+                if (val->Type() != ty.u32()) {
+                    idx = b.Convert(ty.u32(), val)->Result();
+                }
+                offset->expr.Push(b.Multiply(ty.u32(), idx, u32(elm_size))->Result());
             },
             TINT_ICE_ON_NO_MATCH);
     }
 
     // Note, must be called inside a builder insert block (Append, InsertBefore, etc)
-    core::ir::Value* OffsetToValue(OffsetData offset) {
+    core::ir::Value* OffsetToValue(const OffsetData& offset) {
         core::ir::Value* val = b.Value(u32(offset.byte_offset));
         for (core::ir::Value* expr : offset.expr) {
-            val = b.Add(ty.u32(), val, expr)->Result(0);
+            val = b.Add(ty.u32(), val, expr)->Result();
         }
         return val;
     }
@@ -435,7 +436,7 @@ struct State {
         if (is_f16) {
             cast = from;
         } else {
-            cast = b.Bitcast(cast_ty, from)->Result(0);
+            cast = b.Bitcast(cast_ty, from)->Result();
         }
         b.MemberCall<hlsl::ir::MemberBuiltinCall>(ty.void_(), fn, var, offset, cast);
     }
@@ -510,7 +511,7 @@ struct State {
         if (is_f16) {
             res = builtin;
         } else {
-            res = b.Bitcast(result_ty, builtin->Result(0));
+            res = b.Bitcast(result_ty, builtin->Result());
         }
         return res;
     }
@@ -537,8 +538,8 @@ struct State {
                 Vector<core::ir::Value*, 4> values;
                 for (const auto* mem : s->Members()) {
                     values.Push(MakeLoad(inst, var, mem->Type(),
-                                         b.Add<u32>(p, u32(mem->Offset()))->Result(0))
-                                    ->Result(0));
+                                         b.Add<u32>(p, u32(mem->Offset()))->Result())
+                                    ->Result());
                 }
 
                 b.Return(fn, b.Construct(s, values));
@@ -560,8 +561,8 @@ struct State {
             b.Append(fn->Block(), [&] {
                 for (const auto* mem : s->Members()) {
                     auto* from = b.Access(mem->Type(), obj, u32(mem->Index()));
-                    MakeStore(inst, var, from->Result(0),
-                              b.Add<u32>(p, u32(mem->Offset()))->Result(0));
+                    MakeStore(inst, var, from->Result(),
+                              b.Add<u32>(p, u32(mem->Offset()))->Result());
                 }
 
                 b.Return(fn);
@@ -593,8 +594,8 @@ struct State {
                 Vector<core::ir::Value*, 4> values;
                 for (size_t i = 0; i < mat->Columns(); ++i) {
                     auto* add = b.Add<u32>(p, u32(i * mat->ColumnStride()));
-                    auto* load = MakeLoad(inst, var, mat->ColumnType(), add->Result(0));
-                    values.Push(load->Result(0));
+                    auto* load = MakeLoad(inst, var, mat->ColumnType(), add->Result());
+                    values.Push(load->Result());
                 }
 
                 b.Return(fn, b.Construct(mat, values));
@@ -617,8 +618,8 @@ struct State {
                 Vector<core::ir::Value*, 4> values;
                 for (size_t i = 0; i < mat->Columns(); ++i) {
                     auto* from = b.Access(mat->ColumnType(), obj, u32(i));
-                    MakeStore(inst, var, from->Result(0),
-                              b.Add<u32>(p, u32(i * mat->ColumnStride()))->Result(0));
+                    MakeStore(inst, var, from->Result(),
+                              b.Add<u32>(p, u32(i * mat->ColumnStride()))->Result());
                 }
 
                 b.Return(fn);
@@ -661,7 +662,7 @@ struct State {
                     auto* access = b.Access(ty.ptr<function>(arr->ElemType()), result_arr, idx);
                     auto* stride = b.Multiply<u32>(idx, u32(arr->Stride()));
                     auto* byte_offset = b.Add<u32>(p, stride);
-                    b.Store(access, MakeLoad(inst, var, arr->ElemType(), byte_offset->Result(0)));
+                    b.Store(access, MakeLoad(inst, var, arr->ElemType(), byte_offset->Result()));
                 });
 
                 b.Return(fn, b.Load(result_arr));
@@ -688,7 +689,7 @@ struct State {
                     auto* from = b.Access(arr->ElemType(), obj, idx);
                     auto* stride = b.Multiply<u32>(idx, u32(arr->Stride()));
                     auto* byte_offset = b.Add<u32>(p, stride);
-                    MakeStore(inst, var, from->Result(0), byte_offset->Result(0));
+                    MakeStore(inst, var, from->Result(), byte_offset->Result());
                 });
 
                 b.Return(fn);
@@ -741,7 +742,7 @@ struct State {
         }
 
         // Copy the usages into a vector so we can remove items from the hashset.
-        auto usages = a->Result(0)->UsagesSorted();
+        auto usages = a->Result()->UsagesSorted();
         while (!usages.IsEmpty()) {
             auto usage = usages.Pop();
             tint::Switch(
@@ -750,10 +751,10 @@ struct State {
                     // The `let` is essentially an alias to the `access`. So, add the `let`
                     // usages into the usage worklist, and replace the let with the access chain
                     // directly.
-                    for (auto& u : let->Result(0)->UsagesSorted()) {
+                    for (auto& u : let->Result()->UsagesSorted()) {
                         usages.Push(u);
                     }
-                    let->Result(0)->ReplaceAllUsesWith(a->Result(0));
+                    let->Result()->ReplaceAllUsesWith(a->Result());
                     let->Destroy();
                 },
                 [&](core::ir::Access* sub_access) {
@@ -764,7 +765,7 @@ struct State {
                 },
 
                 [&](core::ir::LoadVectorElement* lve) {
-                    a->Result(0)->RemoveUsage(usage);
+                    a->Result()->RemoveUsage(usage);
 
                     OffsetData load_offset = offset;
                     b.InsertBefore(lve, [&] {
@@ -773,12 +774,12 @@ struct State {
                     Load(lve, var, load_offset);
                 },
                 [&](core::ir::Load* ld) {
-                    a->Result(0)->RemoveUsage(usage);
+                    a->Result()->RemoveUsage(usage);
                     Load(ld, var, offset);
                 },
 
                 [&](core::ir::StoreVectorElement* sve) {
-                    a->Result(0)->RemoveUsage(usage);
+                    a->Result()->RemoveUsage(usage);
 
                     OffsetData store_offset = offset;
                     b.InsertBefore(sve, [&] {
@@ -798,37 +799,37 @@ struct State {
                             ArrayLength(var, call, obj, offset.byte_offset);
                             break;
                         case core::BuiltinFn::kAtomicAnd:
-                            AtomicAnd(var, call, offset.byte_offset);
+                            AtomicAnd(var, call, offset);
                             break;
                         case core::BuiltinFn::kAtomicOr:
-                            AtomicOr(var, call, offset.byte_offset);
+                            AtomicOr(var, call, offset);
                             break;
                         case core::BuiltinFn::kAtomicXor:
-                            AtomicXor(var, call, offset.byte_offset);
+                            AtomicXor(var, call, offset);
                             break;
                         case core::BuiltinFn::kAtomicMin:
-                            AtomicMin(var, call, offset.byte_offset);
+                            AtomicMin(var, call, offset);
                             break;
                         case core::BuiltinFn::kAtomicMax:
-                            AtomicMax(var, call, offset.byte_offset);
+                            AtomicMax(var, call, offset);
                             break;
                         case core::BuiltinFn::kAtomicAdd:
-                            AtomicAdd(var, call, offset.byte_offset);
+                            AtomicAdd(var, call, offset);
                             break;
                         case core::BuiltinFn::kAtomicSub:
-                            AtomicSub(var, call, offset.byte_offset);
+                            AtomicSub(var, call, offset);
                             break;
                         case core::BuiltinFn::kAtomicExchange:
-                            AtomicExchange(var, call, offset.byte_offset);
+                            AtomicExchange(var, call, offset);
                             break;
                         case core::BuiltinFn::kAtomicCompareExchangeWeak:
-                            AtomicCompareExchangeWeak(var, call, offset.byte_offset);
+                            AtomicCompareExchangeWeak(var, call, offset);
                             break;
                         case core::BuiltinFn::kAtomicStore:
-                            AtomicStore(var, call, offset.byte_offset);
+                            AtomicStore(var, call, offset);
                             break;
                         case core::BuiltinFn::kAtomicLoad:
-                            AtomicLoad(var, call, offset.byte_offset);
+                            AtomicLoad(var, call, offset);
                             break;
                         default:
                             TINT_UNREACHABLE() << call->Func();
@@ -843,7 +844,7 @@ struct State {
     void Store(core::ir::Instruction* inst,
                core::ir::Var* var,
                core::ir::Value* from,
-               OffsetData& offset) {
+               const OffsetData& offset) {
         b.InsertBefore(inst, [&] {
             auto* off = OffsetToValue(offset);
             MakeStore(inst, var, from, off);
@@ -851,11 +852,11 @@ struct State {
         inst->Destroy();
     }
 
-    void Load(core::ir::Instruction* inst, core::ir::Var* var, OffsetData& offset) {
+    void Load(core::ir::Instruction* inst, core::ir::Var* var, const OffsetData& offset) {
         b.InsertBefore(inst, [&] {
             auto* off = OffsetToValue(offset);
-            auto* call = MakeLoad(inst, var, inst->Result(0)->Type(), off);
-            inst->Result(0)->ReplaceAllUsesWith(call->Result(0));
+            auto* call = MakeLoad(inst, var, inst->Result()->Type(), off);
+            inst->Result()->ReplaceAllUsesWith(call->Result());
         });
         inst->Destroy();
     }
@@ -872,8 +873,8 @@ struct State {
             UpdateOffsetData(lve->Index(), var_ty->StoreType()->DeepestElement()->Size(), &offset);
 
             auto* result =
-                MakeScalarOrVectorLoad(var, lve->Result(0)->Type(), OffsetToValue(offset));
-            lve->Result(0)->ReplaceAllUsesWith(result->Result(0));
+                MakeScalarOrVectorLoad(var, lve->Result()->Type(), OffsetToValue(offset));
+            lve->Result()->ReplaceAllUsesWith(result->Result());
         });
 
         lve->Destroy();
@@ -898,7 +899,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> DecomposeStorageAccess(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "DecomposeStorageAccess transform",
+    auto result = ValidateAndDumpIfNeeded(ir, "hlsl.DecomposeStorageAccess",
                                           core::ir::Capabilities{
                                               core::ir::Capability::kAllowClipDistancesOnF32,
                                           });

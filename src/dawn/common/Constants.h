@@ -47,6 +47,23 @@ static constexpr uint32_t kMaxInterStageShaderVariables = 16u;
 static constexpr uint64_t kAssumedMaxBufferSize =
     0x80000000u;  // Use 2 GB when the limit is unavailable
 
+// All Immediate constants are 32 bit
+static constexpr uint32_t kImmediateConstantElementByteSize = sizeof(uint32_t);
+
+// Known as 'Immediate Data'. User could update them through APIs.
+static constexpr uint32_t kMaxExternalImmediateConstantsPerPipeline = 16u;
+
+// Vulkan requires min-max push constant bytes is 128 byte, which is
+// equals to 32 32bit constants. D3D12 requires 64 32bit constants limits.
+// Pick 32 here.
+static constexpr uint32_t kMaxImmediateConstantsPerPipeline = 32u;
+
+// Adapter Max limitation for user immediate constants is 64 bytes.
+static constexpr uint32_t kMaxSupportedImmediateDataBytes = 64u;
+
+// Device Default limitation for user immediate constants is 16 bytes.
+static constexpr uint32_t kDefaultMaxImmediateDataBytes = 16u;
+
 // Per stage maximum limits used to optimized Dawn internals.
 static constexpr uint32_t kMaxSampledTexturesPerShaderStage = 16;
 static constexpr uint32_t kMaxSamplersPerShaderStage = 16;

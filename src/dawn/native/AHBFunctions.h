@@ -31,6 +31,7 @@
 #include <android/hardware_buffer.h>
 
 #include "dawn/common/DynamicLib.h"
+#include "dawn/native/dawn_platform.h"
 
 namespace dawn::native {
 
@@ -49,6 +50,10 @@ class AHBFunctions {
   private:
     DynamicLib mNativeWindowLib;
 };
+
+SharedTextureMemoryProperties GetAHBSharedTextureMemoryProperties(
+    const AHBFunctions* ahbFunctions,
+    ::AHardwareBuffer* aHardwareBuffer);
 
 }  // namespace dawn::native
 

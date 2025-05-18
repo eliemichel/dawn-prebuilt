@@ -53,6 +53,18 @@ if (dawn_enable_vulkan) {
   enable_vulkan_loader =
       dawn_enable_vulkan_loader && dawn_vulkan_loader_dir != ""
 }
+config("abseil_config") {
+  if (!build_with_chromium && is_clang) {
+    cflags = [
+      # Allow the use of enable_if()
+      "-Wno-gcc-compat",
+      "-Wno-unreachable-code-break",
+
+      # Allows use of _Nullable, _Nonnull & _Null_unspecified
+      "-Wno-nullability-extension",
+    ]
+  }
+}
 
 group("abseil") {
   # When building within Chromium or ANGLE we need to include "//third_party/abseil-cpp:absl" while
@@ -62,12 +74,14 @@ group("abseil") {
     public_deps = [ "$dawn_abseil_dir:absl" ]
   } else {
     public_deps = [
-      "${dawn_root}/third_party/gn/abseil-cpp:bits",
-      "${dawn_root}/third_party/gn/abseil-cpp:flat_hash_map",
-      "${dawn_root}/third_party/gn/abseil-cpp:flat_hash_set",
-      "${dawn_root}/third_party/gn/abseil-cpp:inlined_vector",
-      "${dawn_root}/third_party/gn/abseil-cpp:str_format",
-      "${dawn_root}/third_party/gn/abseil-cpp:strings",
+      "${dawn_abseil_dir}/absl/container:flat_hash_map",
+      "${dawn_abseil_dir}/absl/container:flat_hash_set",
+      "${dawn_abseil_dir}/absl/container:inlined_vector",
+      "${dawn_abseil_dir}/absl/numeric:bits",
+      "${dawn_abseil_dir}/absl/strings:str_format",
+      "${dawn_abseil_dir}/absl/strings:string_view",
+      "${dawn_abseil_dir}/absl/strings:strings",
+      "${dawn_abseil_dir}/absl/types:span",
     ]
   }
 }
@@ -170,7 +184,7 @@ source_set("sources") {
     ":utils_gen",
     "${dawn_root}/src/dawn/common",
     "${dawn_root}/src/tint/api",
-    "${dawn_root}/src/tint/lang/wgsl/features",
+    "${dawn_root}/src/tint/lang/wgsl",
   ]
   defines = []
   libs = []
@@ -186,6 +200,8 @@ source_set("sources") {
   if (is_clang) {
     cflags = [ "-Wglobal-constructors" ]
   }
+
+  public_configs = [ ":abseil_config" ]
 
   # Dependencies that are needed to compile dawn native entry points in
   # FooBackend.cpp need to be public deps so they are propagated to the
@@ -219,6 +235,8 @@ source_set("sources") {
     "BindingInfo.h",
     "BlitBufferToDepthStencil.cpp",
     "BlitBufferToDepthStencil.h",
+    "BlitBufferToTexture.cpp",
+    "BlitBufferToTexture.h",
     "BlitColorToColorWithDraw.cpp",
     "BlitColorToColorWithDraw.h",
     "BlitDepthToDepth.cpp",
@@ -296,6 +314,9 @@ source_set("sources") {
     "Format.cpp",
     "Format.h",
     "Forward.h",
+    "ImmediateConstantsLayout.h",
+    "ImmediateConstantsTracker.cpp",
+    "ImmediateConstantsTracker.h",
     "IndirectDrawMetadata.cpp",
     "IndirectDrawMetadata.h",
     "IndirectDrawValidationEncoder.cpp",
@@ -387,6 +408,8 @@ source_set("sources") {
     "Toggles.cpp",
     "Toggles.h",
     "UsageValidationMode.h",
+    "ValidationUtils.cpp",
+    "ValidationUtils.h",
     "VisitableMembers.h",
     "WaitAnySystemEvent.h",
     "dawn_platform.h",
@@ -419,13 +442,13 @@ source_set("sources") {
   }
 
   # Only win32 app needs to link with user32.lib
-  # In UWP, all availiable APIs are defined in WindowsApp.lib
+  # In UWP, all available APIs are defined in WindowsApp.lib
   if (is_win && !dawn_is_winuwp) {
     libs += [
       "user32.lib",
       "delayimp.lib",
     ]
-    public_configs = [ ":win_delayload" ]
+    public_configs += [ ":win_delayload" ]
   }
 
   if (dawn_is_winuwp && is_debug) {
@@ -472,8 +495,6 @@ source_set("sources") {
       "d3d/SharedTextureMemoryD3D.h",
       "d3d/SwapChainD3D.cpp",
       "d3d/SwapChainD3D.h",
-      "d3d/TextureD3D.cpp",
-      "d3d/TextureD3D.h",
       "d3d/UtilsD3D.cpp",
       "d3d/UtilsD3D.h",
       "d3d/d3d_platform.h",
@@ -757,6 +778,14 @@ source_set("sources") {
       "opengl/SamplerGL.h",
       "opengl/ShaderModuleGL.cpp",
       "opengl/ShaderModuleGL.h",
+      "opengl/SharedFenceEGL.cpp",
+      "opengl/SharedFenceEGL.h",
+      "opengl/SharedFenceGL.cpp",
+      "opengl/SharedFenceGL.h",
+      "opengl/SharedTextureMemoryEGL.cpp",
+      "opengl/SharedTextureMemoryEGL.h",
+      "opengl/SharedTextureMemoryGL.cpp",
+      "opengl/SharedTextureMemoryGL.h",
       "opengl/SwapChainEGL.cpp",
       "opengl/SwapChainEGL.h",
       "opengl/TextureGL.cpp",
@@ -784,7 +813,8 @@ source_set("sources") {
       "vulkan/BufferVk.h",
       "vulkan/CommandBufferVk.cpp",
       "vulkan/CommandBufferVk.h",
-      "vulkan/CommandRecordingContext.h",
+      "vulkan/CommandRecordingContextVk.cpp",
+      "vulkan/CommandRecordingContextVk.h",
       "vulkan/ComputePipelineVk.cpp",
       "vulkan/ComputePipelineVk.h",
       "vulkan/DescriptorSetAllocation.h",
@@ -909,7 +939,7 @@ source_set("sources") {
 dawn_component("native") {
   DEFINE_PREFIX = "DAWN_NATIVE"
 
-  #Make headers publically visible
+  #Make headers publicly visible
   public_deps = [ ":headers" ]
 
   deps = [

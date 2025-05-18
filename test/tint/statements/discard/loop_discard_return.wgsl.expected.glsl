@@ -3,7 +3,11 @@
 bool continue_execution = true;
 void f() {
   {
+    uvec2 tint_loop_idx = uvec2(4294967295u);
     while(true) {
+      if (all(equal(tint_loop_idx, uvec2(0u)))) {
+        break;
+      }
       continue_execution = false;
       return;
     }

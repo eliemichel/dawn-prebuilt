@@ -147,8 +147,8 @@ struct State {
             TINT_ASSERT(results.Length() < 2);
             if (!results.IsEmpty() && !results[0]->Type()->Is<core::type::Void>()) {
                 // The original instruction had a result, so return it from the if instruction.
-                ifelse->SetResults(Vector{b.InstructionResult(results[0]->Type())});
-                results[0]->ReplaceAllUsesWith(ifelse->Result(0));
+                ifelse->SetResult(b.InstructionResult(results[0]->Type()));
+                results[0]->ReplaceAllUsesWith(ifelse->Result());
                 ifelse->True()->Append(b.ExitIf(ifelse, result));
             } else {
                 ifelse->True()->Append(b.ExitIf(ifelse));
@@ -189,7 +189,7 @@ struct State {
                 [&](Return* ret) {
                     // Insert a conditional terminate invocation instruction before each return
                     // instruction in the entry point function.
-                    if (ret->Func()->Stage() == Function::PipelineStage::kFragment) {
+                    if (ret->Func()->IsFragment()) {
                         b.InsertBefore(ret, [&] {
                             auto* cond = b.Load(continue_execution);
                             auto* ifelse = b.If(b.Not<bool>(cond));
@@ -214,11 +214,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> DemoteToHelper(Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "DemoteToHelper transform",
-                                          core::ir::Capabilities{
-                                              core::ir::Capability::kAllowVectorElementPointer,
-                                              core::ir::Capability::kAllowClipDistancesOnF32,
-                                          });
+    auto result = ValidateAndDumpIfNeeded(ir, "core.DemoteToHelper", kDemoteToHelperCapabilities);
     if (result != Success) {
         return result;
     }

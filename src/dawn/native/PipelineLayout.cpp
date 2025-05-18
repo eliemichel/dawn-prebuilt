@@ -82,6 +82,10 @@ ResultOrError<UnpackedPtr<PipelineLayoutDescriptor>> ValidatePipelineLayoutDescr
 
     BindingCounts bindingCounts = {};
     for (uint32_t i = 0; i < descriptor->bindGroupLayoutCount; ++i) {
+        if (descriptor->bindGroupLayouts[i] == nullptr) {
+            continue;
+        }
+
         DAWN_TRY(device->ValidateObject(descriptor->bindGroupLayouts[i]));
         DAWN_INVALID_IF(descriptor->bindGroupLayouts[i]->GetPipelineCompatibilityToken() !=
                             pipelineCompatibilityToken,
@@ -94,7 +98,7 @@ ResultOrError<UnpackedPtr<PipelineLayoutDescriptor>> ValidatePipelineLayoutDescr
             descriptor->bindGroupLayouts[i]->GetInternalBindGroupLayout()->GetBindingCountInfo());
     }
 
-    DAWN_TRY(ValidateBindingCounts(device->GetLimits(), bindingCounts));
+    DAWN_TRY(ValidateBindingCounts(device->GetLimits(), bindingCounts, device->GetAdapter()));
 
     // Validate immediateDataRangeByteSize.
     if (descriptor->immediateDataRangeByteSize) {
@@ -134,11 +138,23 @@ PipelineLayoutBase::PipelineLayoutBase(DeviceBase* device,
       mImmediateDataRangeByteSize(descriptor->immediateDataRangeByteSize) {
     DAWN_ASSERT(descriptor->bindGroupLayoutCount <= kMaxBindGroups);
 
+    // According to WebGPU SPEC of CreatePipelineLayout(), if bindGroupLayouts[i] is null or
+    // bindGroupLayouts[i].[[descriptor]].entries is empty, treat bindGroupLayouts[i] as an
+    // empty bind group layout. So here unspecified or null bind group layouts can be set to
+    // `device->GetEmptyBindGroupLayout()`.
+    mBindGroupLayouts.fill(device->GetEmptyBindGroupLayout());
     auto bgls = ityp::SpanFromUntyped<BindGroupIndex>(descriptor->bindGroupLayouts,
                                                       descriptor->bindGroupLayoutCount);
     for (auto [group, bgl] : Enumerate(bgls)) {
+        // Keep the default empty bind group layouts for nullptr bind group layouts
+        if (bgl == nullptr) {
+            continue;
+        }
+
+        // Set the bind group layout even if it is empty to copy over the empty bind group layouts
+        // that have a pipeline compatibility token.
         mBindGroupLayouts[group] = bgl;
-        mMask.set(group);
+        mMask.set(group, !bgl->IsEmpty());
     }
 
     // Gather the PLS information.
@@ -151,6 +167,21 @@ PipelineLayoutBase::PipelineLayoutBase(DeviceBase* device,
             mStorageAttachmentSlots[slot] = pls->storageAttachments[i].format;
         }
     }
+
+    BindingCounts bindingCounts = {};
+    for (BindGroupIndex i : IterateBitSet(mMask)) {
+        AccumulateBindingCounts(
+            &bindingCounts,
+            mBindGroupLayouts[i]->GetInternalBindGroupLayout()->GetBindingCountInfo());
+    }
+    mNumStorageBufferBindingsInVertexStage =
+        bindingCounts.perStage[SingleShaderStage::Vertex].storageBufferCount;
+    mNumStorageTextureBindingsInVertexStage =
+        bindingCounts.perStage[SingleShaderStage::Vertex].storageTextureCount;
+    mNumStorageBufferBindingsInFragmentStage =
+        bindingCounts.perStage[SingleShaderStage::Fragment].storageBufferCount;
+    mNumStorageTextureBindingsInFragmentStage =
+        bindingCounts.perStage[SingleShaderStage::Fragment].storageTextureCount;
 }
 
 PipelineLayoutBase::PipelineLayoutBase(DeviceBase* device,
@@ -191,17 +222,17 @@ ResultOrError<Ref<PipelineLayoutBase>> PipelineLayoutBase::CreateDefault(
             modifiedEntry->buffer.type == mergedEntry.buffer.type &&
             modifiedEntry->sampler.type == mergedEntry.sampler.type &&
             // Compatibility between these sample types is checked below.
-            (modifiedEntry->texture.sampleType != wgpu::TextureSampleType::Undefined) ==
-                (mergedEntry.texture.sampleType != wgpu::TextureSampleType::Undefined) &&
+            (modifiedEntry->texture.sampleType != wgpu::TextureSampleType::BindingNotUsed) ==
+                (mergedEntry.texture.sampleType != wgpu::TextureSampleType::BindingNotUsed) &&
             modifiedEntry->storageTexture.access == mergedEntry.storageTexture.access;
 
         // Minimum buffer binding size excluded because we take the maximum seen across stages.
-        if (modifiedEntry->buffer.type != wgpu::BufferBindingType::Undefined) {
+        if (modifiedEntry->buffer.type != wgpu::BufferBindingType::BindingNotUsed) {
             compatible = compatible && modifiedEntry->buffer.hasDynamicOffset ==
                                            mergedEntry.buffer.hasDynamicOffset;
         }
 
-        if (modifiedEntry->texture.sampleType != wgpu::TextureSampleType::Undefined) {
+        if (modifiedEntry->texture.sampleType != wgpu::TextureSampleType::BindingNotUsed) {
             // Sample types are compatible if they are exactly equal,
             // or if the |modifiedEntry| is Float and the |mergedEntry| is UnfilterableFloat.
             // Note that the |mergedEntry| never has type Float. Texture bindings all start
@@ -218,7 +249,7 @@ ResultOrError<Ref<PipelineLayoutBase>> PipelineLayoutBase::CreateDefault(
                 modifiedEntry->texture.multisampled == mergedEntry.texture.multisampled;
         }
 
-        if (modifiedEntry->storageTexture.access != wgpu::StorageTextureAccess::Undefined) {
+        if (modifiedEntry->storageTexture.access != wgpu::StorageTextureAccess::BindingNotUsed) {
             compatible =
                 compatible &&
                 modifiedEntry->storageTexture.format == mergedEntry.storageTexture.format &&
@@ -355,7 +386,11 @@ ResultOrError<Ref<PipelineLayoutBase>> PipelineLayoutBase::CreateDefault(
         }
 
         // Promote any Unfilterable textures used with a sampler to Filtering.
-        for (const EntryPointMetadata::SamplerTexturePair& pair : metadata.samplerTexturePairs) {
+        for (const EntryPointMetadata::SamplerTexturePair& pair :
+             metadata.samplerAndNonSamplerTexturePairs) {
+            if (pair.sampler == EntryPointMetadata::nonSamplerBindingPoint) {
+                continue;
+            }
             BindGroupLayoutEntry* entry = &entryData[pair.texture.group][pair.texture.binding];
             if (entry->texture.sampleType == wgpu::TextureSampleType::UnfilterableFloat) {
                 entry->texture.sampleType = wgpu::TextureSampleType::Float;
@@ -370,41 +405,37 @@ ResultOrError<Ref<PipelineLayoutBase>> PipelineLayoutBase::CreateDefault(
             std::max(immediateDataRangeByteSize, metadata.immediateDataRangeByteSize);
     }
 
-    // Create the bind group layouts. We need to keep track of the last non-empty BGL because
-    // Dawn doesn't yet know that an empty BGL and a null BGL are the same thing.
-    // TODO(cwallez@chromium.org): remove this when Dawn knows that empty and null BGL are the
-    // same.
-    BindGroupIndex pipelineBGLCount = BindGroupIndex(0);
+    // Create the bind group layouts, including the empty ones as all the bind group layouts should
+    // be created with `pipelineCompatibilityToken` whether they are empty or not.
     PerBindGroup<Ref<BindGroupLayoutBase>> bindGroupLayouts = {};
     for (auto group : Range(kMaxBindGroupsTyped)) {
         DAWN_TRY_ASSIGN(
             bindGroupLayouts[group],
             CreateBGL(device, entryData[group], pipelineCompatibilityToken, allowInternalBinding));
-        if (entryData[group].size() != 0) {
-            pipelineBGLCount = ityp::PlusOne(group);
-        }
     }
 
     // Create the deduced pipeline layout, validating if it is valid.
     PerBindGroup<BindGroupLayoutBase*> bgls = {};
-    for (auto group : Range(pipelineBGLCount)) {
+    for (auto group : Range(kMaxBindGroupsTyped)) {
         bgls[group] = bindGroupLayouts[group].Get();
     }
 
     PipelineLayoutDescriptor desc = {};
     desc.bindGroupLayouts = bgls.data();
-    desc.bindGroupLayoutCount = static_cast<uint32_t>(pipelineBGLCount);
+    desc.bindGroupLayoutCount = static_cast<uint32_t>(kMaxBindGroupsTyped);
     desc.immediateDataRangeByteSize = immediateDataRangeByteSize;
 
     Ref<PipelineLayoutBase> result;
     DAWN_TRY_ASSIGN(result, device->CreatePipelineLayout(&desc, pipelineCompatibilityToken));
     DAWN_ASSERT(!result->IsError());
 
-    // Check in debug that the pipeline layout is compatible with the current pipeline.
+    // That the auto pipeline layout is compatible with the current pipeline.
+    // Note: the currently specified rules can generate invalid default layouts.
+    // Hopefully the spec will be updated to prevent this.
+    // See: https://github.com/gpuweb/gpuweb/issues/4952
     for (const StageAndDescriptor& stage : stages) {
         const EntryPointMetadata& metadata = stage.module->GetEntryPoint(stage.entryPoint);
-        DAWN_ASSERT(
-            ValidateCompatibilityWithPipelineLayout(device, metadata, result.Get()).IsSuccess());
+        DAWN_TRY(ValidateCompatibilityWithPipelineLayout(device, metadata, result.Get()));
     }
 
     return std::move(result);
@@ -417,8 +448,6 @@ ObjectType PipelineLayoutBase::GetType() const {
 const BindGroupLayoutBase* PipelineLayoutBase::GetFrontendBindGroupLayout(
     BindGroupIndex group) const {
     DAWN_ASSERT(!IsError());
-    DAWN_ASSERT(group < kMaxBindGroupsTyped);
-    DAWN_ASSERT(mMask[group]);
     const BindGroupLayoutBase* bgl = mBindGroupLayouts[group].Get();
     DAWN_ASSERT(bgl != nullptr);
     return bgl;
@@ -426,8 +455,6 @@ const BindGroupLayoutBase* PipelineLayoutBase::GetFrontendBindGroupLayout(
 
 BindGroupLayoutBase* PipelineLayoutBase::GetFrontendBindGroupLayout(BindGroupIndex group) {
     DAWN_ASSERT(!IsError());
-    DAWN_ASSERT(group < kMaxBindGroupsTyped);
-    DAWN_ASSERT(mMask[group]);
     BindGroupLayoutBase* bgl = mBindGroupLayouts[group].Get();
     DAWN_ASSERT(bgl != nullptr);
     return bgl;
@@ -435,11 +462,7 @@ BindGroupLayoutBase* PipelineLayoutBase::GetFrontendBindGroupLayout(BindGroupInd
 
 const BindGroupLayoutInternalBase* PipelineLayoutBase::GetBindGroupLayout(
     BindGroupIndex group) const {
-    return GetFrontendBindGroupLayout(group)->GetInternalBindGroupLayout();
-}
-
-BindGroupLayoutInternalBase* PipelineLayoutBase::GetBindGroupLayout(BindGroupIndex group) {
-    return GetFrontendBindGroupLayout(group)->GetInternalBindGroupLayout();
+        return GetFrontendBindGroupLayout(group)->GetInternalBindGroupLayout();
 }
 
 const BindGroupMask& PipelineLayoutBase::GetBindGroupLayoutsMask() const {
@@ -535,6 +558,22 @@ bool PipelineLayoutBase::EqualityFunc::operator()(const PipelineLayoutBase* a,
 
 uint32_t PipelineLayoutBase::GetImmediateDataRangeByteSize() const {
     return mImmediateDataRangeByteSize;
+}
+
+uint32_t PipelineLayoutBase::GetNumStorageBufferBindingsInVertexStage() const {
+    return mNumStorageBufferBindingsInVertexStage;
+}
+
+uint32_t PipelineLayoutBase::GetNumStorageTextureBindingsInVertexStage() const {
+    return mNumStorageTextureBindingsInVertexStage;
+}
+
+uint32_t PipelineLayoutBase::GetNumStorageBufferBindingsInFragmentStage() const {
+    return mNumStorageBufferBindingsInFragmentStage;
+}
+
+uint32_t PipelineLayoutBase::GetNumStorageTextureBindingsInFragmentStage() const {
+    return mNumStorageTextureBindingsInFragmentStage;
 }
 
 }  // namespace dawn::native

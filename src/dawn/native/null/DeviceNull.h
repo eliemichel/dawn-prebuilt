@@ -126,7 +126,7 @@ class Device final : public DeviceBase {
                                            uint64_t destinationOffset,
                                            uint64_t size) override;
     MaybeError CopyFromStagingToTextureImpl(const BufferBase* source,
-                                            const TextureDataLayout& src,
+                                            const TexelCopyBufferLayout& src,
                                             const TextureCopy& dst,
                                             const Extent3D& copySizePixels) override;
 
@@ -162,7 +162,7 @@ class Device final : public DeviceBase {
         const UnpackedPtr<ShaderModuleDescriptor>& descriptor,
         const std::vector<tint::wgsl::Extension>& internalExtensions,
         ShaderModuleParseResult* parseResult,
-        OwnedCompilationMessages* compilationMessages) override;
+        std::unique_ptr<OwnedCompilationMessages>* compilationMessages) override;
     ResultOrError<Ref<SwapChainBase>> CreateSwapChainImpl(
         Surface* surface,
         SwapChainBase* previousSwapChain,
@@ -183,13 +183,15 @@ class Device final : public DeviceBase {
 
 class PhysicalDevice : public PhysicalDeviceBase {
   public:
-    PhysicalDevice();
+    static Ref<PhysicalDevice> Create();
+
     ~PhysicalDevice() override;
 
     // PhysicalDeviceBase Implementation
     bool SupportsExternalImages() const override;
 
-    bool SupportsFeatureLevel(FeatureLevel featureLevel) const override;
+    bool SupportsFeatureLevel(wgpu::FeatureLevel featureLevel,
+                              InstanceBase* instance) const override;
 
     ResultOrError<PhysicalDeviceSurfaceCapabilities> GetSurfaceCapabilities(
         InstanceBase* instance,
@@ -199,6 +201,8 @@ class PhysicalDevice : public PhysicalDeviceBase {
     using PhysicalDeviceBase::SetSupportedFeaturesForTesting;
 
   private:
+    PhysicalDevice();
+
     MaybeError InitializeImpl() override;
     void InitializeSupportedFeaturesImpl() override;
     MaybeError InitializeSupportedLimitsImpl(CombinedLimits* limits) override;
@@ -238,6 +242,8 @@ class BindGroup final : private BindGroupDataHolder, public BindGroupBase {
 
   private:
     ~BindGroup() override = default;
+
+    MaybeError InitializeImpl() override;
 };
 
 class BindGroupLayout final : public BindGroupLayoutInternalBase {
@@ -318,7 +324,7 @@ class ShaderModule final : public ShaderModuleBase {
     using ShaderModuleBase::ShaderModuleBase;
 
     MaybeError Initialize(ShaderModuleParseResult* parseResult,
-                          OwnedCompilationMessages* compilationMessages);
+                          std::unique_ptr<OwnedCompilationMessages>* compilationMessages);
 };
 
 class SwapChain final : public SwapChainBase {

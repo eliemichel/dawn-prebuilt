@@ -28,7 +28,6 @@
 #include "dawn/native/vulkan/ShaderModuleVk.h"
 
 #include <cstdint>
-#include <map>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -36,10 +35,18 @@
 #include "absl/container/flat_hash_map.h"
 #include "dawn/common/HashUtils.h"
 #include "dawn/common/MatchVariant.h"
+#include "dawn/common/Ref.h"
+#include "dawn/native/Adapter.h"
 #include "dawn/native/CacheRequest.h"
+#include "dawn/native/ComputePipeline.h"
+#include "dawn/native/Device.h"
+#include "dawn/native/ImmediateConstantsLayout.h"
+#include "dawn/native/Instance.h"
 #include "dawn/native/PhysicalDevice.h"
+#include "dawn/native/RenderPipeline.h"
 #include "dawn/native/Serializable.h"
 #include "dawn/native/TintUtils.h"
+#include "dawn/native/utils/WGPUHelpers.h"
 #include "dawn/native/vulkan/BindGroupLayoutVk.h"
 #include "dawn/native/vulkan/DeviceVk.h"
 #include "dawn/native/vulkan/FencedDeleter.h"
@@ -47,6 +54,7 @@
 #include "dawn/native/vulkan/PipelineLayoutVk.h"
 #include "dawn/native/vulkan/UtilsVulkan.h"
 #include "dawn/native/vulkan/VulkanError.h"
+#include "dawn/native/wgpu_structs_autogen.h"
 #include "dawn/platform/DawnPlatform.h"
 #include "dawn/platform/metrics/HistogramMacros.h"
 #include "dawn/platform/tracing/TraceEvent.h"
@@ -59,9 +67,7 @@
 
 namespace dawn::native::vulkan {
 
-#define COMPILED_SPIRV_MEMBERS(X)   \
-    X(std::vector<uint32_t>, spirv) \
-    X(std::string, remappedEntryPoint)
+#define COMPILED_SPIRV_MEMBERS(X) X(std::vector<uint32_t>, spirv)
 
 // Represents the result and metadata for a SPIR-V compilation.
 DAWN_SERIALIZABLE(struct, CompiledSpirv, COMPILED_SPIRV_MEMBERS){};
@@ -74,9 +80,6 @@ bool TransformedShaderModuleCacheKey::operator==(
         return false;
     }
     if (!std::equal(constants.begin(), constants.end(), other.constants.begin())) {
-        return false;
-    }
-    if (maxSubgroupSizeForFullSubgroups != other.maxSubgroupSizeForFullSubgroups) {
         return false;
     }
     if (emitPointSize != other.emitPointSize) {
@@ -127,8 +130,7 @@ class ShaderModule::ConcurrentTransformedShaderModuleCache {
         if (iter == mTransformedShaderModuleCache.end()) {
             bool added = false;
             std::tie(iter, added) = mTransformedShaderModuleCache.emplace(
-                key, Entry{module, std::move(compilation.spirv),
-                           std::move(compilation.remappedEntryPoint), hasInputAttachment});
+                key, Entry{module, std::move(compilation.spirv), hasInputAttachment});
             DAWN_ASSERT(added);
         } else {
             // No need to use FencedDeleter since this shader module was just created and does
@@ -143,12 +145,13 @@ class ShaderModule::ConcurrentTransformedShaderModuleCache {
     struct Entry {
         VkShaderModule vkModule;
         std::vector<uint32_t> spirv;
-        std::string remappedEntryPoint;
         bool hasInputAttachment;
 
         ModuleAndSpirv AsRefs() const {
             return {
-                vkModule,           spirv.data(), spirv.size(), remappedEntryPoint.c_str(),
+                vkModule,
+                spirv.data(),
+                spirv.size(),
                 hasInputAttachment,
             };
         }
@@ -168,7 +171,7 @@ ResultOrError<Ref<ShaderModule>> ShaderModule::Create(
     const UnpackedPtr<ShaderModuleDescriptor>& descriptor,
     const std::vector<tint::wgsl::Extension>& internalExtensions,
     ShaderModuleParseResult* parseResult,
-    OwnedCompilationMessages* compilationMessages) {
+    std::unique_ptr<OwnedCompilationMessages>* compilationMessages) {
     Ref<ShaderModule> module = AcquireRef(new ShaderModule(device, descriptor, internalExtensions));
     DAWN_TRY(module->Initialize(parseResult, compilationMessages));
     return module;
@@ -181,9 +184,9 @@ ShaderModule::ShaderModule(Device* device,
       mTransformedShaderModuleCache(
           std::make_unique<ConcurrentTransformedShaderModuleCache>(device)) {}
 
-MaybeError ShaderModule::Initialize(ShaderModuleParseResult* parseResult,
-                                    OwnedCompilationMessages* compilationMessages) {
-    ScopedTintICEHandler scopedICEHandler(GetDevice());
+MaybeError ShaderModule::Initialize(
+    ShaderModuleParseResult* parseResult,
+    std::unique_ptr<OwnedCompilationMessages>* compilationMessages) {
     return InitializeBase(parseResult, compilationMessages);
 }
 
@@ -202,11 +205,12 @@ ShaderModule::~ShaderModule() = default;
     X(const tint::Program*, inputProgram)                                                        \
     X(std::optional<tint::ast::transform::SubstituteOverride::Config>, substituteOverrideConfig) \
     X(LimitsForCompilationRequest, limits)                                                       \
+    X(CacheKey::UnsafeUnkeyedValue<LimitsForCompilationRequest>, adapterSupportedLimits)         \
+    X(uint32_t, maxSubgroupSize)                                                                 \
     X(std::string_view, entryPointName)                                                          \
-    X(bool, disableSymbolRenaming)                                                               \
+    X(bool, usesSubgroupMatrix)                                                                  \
     X(tint::spirv::writer::Options, tintOptions)                                                 \
-    X(CacheKey::UnsafeUnkeyedValue<dawn::platform::Platform*>, platform)                         \
-    X(std::optional<uint32_t>, maxSubgroupSizeForFullSubgroups)
+    X(CacheKey::UnsafeUnkeyedValue<dawn::platform::Platform*>, platform)
 
 DAWN_MAKE_CACHE_REQUEST(SpirvCompilationRequest, SPIRV_COMPILATION_REQUEST_MEMBERS);
 #undef SPIRV_COMPILATION_REQUEST_MEMBERS
@@ -217,20 +221,17 @@ ResultOrError<ShaderModule::ModuleAndSpirv> ShaderModule::GetHandleAndSpirv(
     SingleShaderStage stage,
     const ProgrammableStage& programmableStage,
     const PipelineLayout* layout,
-    bool clampFragDepth,
     bool emitPointSize,
-    std::optional<uint32_t> maxSubgroupSizeForFullSubgroups) {
+    const ImmediateConstantMask& pipelineImmediateMask) {
     TRACE_EVENT0(GetDevice()->GetPlatform(), General, "ShaderModuleVk::GetHandleAndSpirv");
-
-    ScopedTintICEHandler scopedICEHandler(GetDevice());
 
     // Check to see if we have the handle and spirv cached already
     // TODO(chromium:345359083): Improve the computation of the cache key. For example, it isn't
     // ideal to use `reinterpret_cast<uintptr_t>(layout)` as the layout may be freed and
     // reallocated during the runtime.
-    auto cacheKey = TransformedShaderModuleCacheKey{
-        reinterpret_cast<uintptr_t>(layout), programmableStage.entryPoint.c_str(),
-        programmableStage.constants, maxSubgroupSizeForFullSubgroups, emitPointSize};
+    auto cacheKey = TransformedShaderModuleCacheKey{reinterpret_cast<uintptr_t>(layout),
+                                                    programmableStage.entryPoint.c_str(),
+                                                    programmableStage.constants, emitPointSize};
     auto handleAndSpirv = mTransformedShaderModuleCache->Find(cacheKey);
     if (handleAndSpirv.has_value()) {
         return std::move(*handleAndSpirv);
@@ -273,11 +274,13 @@ ResultOrError<ShaderModule::ModuleAndSpirv> ShaderModule::GetHandleAndSpirv(
                         case kInternalStorageBufferBinding:
                         case wgpu::BufferBindingType::Storage:
                         case wgpu::BufferBindingType::ReadOnlyStorage:
+                        case kInternalReadOnlyStorageBufferBinding:
                             bindings.storage.emplace(
                                 srcBindingPoint,
                                 tint::spirv::writer::binding::Storage{dstBindingPoint.group,
                                                                       dstBindingPoint.binding});
                             break;
+                        case wgpu::BufferBindingType::BindingNotUsed:
                         case wgpu::BufferBindingType::Undefined:
                             DAWN_UNREACHABLE();
                             break;
@@ -343,17 +346,25 @@ ResultOrError<ShaderModule::ModuleAndSpirv> ShaderModule::GetHandleAndSpirv(
     auto tintProgram = GetTintProgram();
     req.inputProgram = &(tintProgram->program);
     req.entryPointName = programmableStage.entryPoint;
-    req.disableSymbolRenaming = GetDevice()->IsToggleEnabled(Toggle::DisableSymbolRenaming);
     req.platform = UnsafeUnkeyedValue(GetDevice()->GetPlatform());
     req.substituteOverrideConfig = std::move(substituteOverrideConfig);
-    req.maxSubgroupSizeForFullSubgroups = maxSubgroupSizeForFullSubgroups;
+    req.usesSubgroupMatrix = programmableStage.metadata->usesSubgroupMatrix;
+
+    req.tintOptions.remapped_entry_point_name = kRemappedEntryPointName;
+    req.tintOptions.strip_all_names = !GetDevice()->IsToggleEnabled(Toggle::DisableSymbolRenaming);
+
     req.tintOptions.statically_paired_texture_binding_points =
         std::move(statically_paired_texture_binding_points);
-    req.tintOptions.clamp_frag_depth = clampFragDepth;
     req.tintOptions.disable_robustness = !GetDevice()->IsRobustnessEnabled();
     req.tintOptions.emit_vertex_point_size = emitPointSize;
+
     req.tintOptions.disable_workgroup_init =
         GetDevice()->IsToggleEnabled(Toggle::DisableWorkgroupInit);
+    // The only possible alternative for the vulkan demote to helper extension is
+    // "OpTerminateInvocation" which remains unimplemented in dawn/tint.
+    req.tintOptions.use_demote_to_helper_invocation_extensions =
+        GetDevice()->IsToggleEnabled(Toggle::VulkanUseDemoteToHelperInvocationExtension);
+
     req.tintOptions.use_zero_initialize_workgroup_memory_extension =
         GetDevice()->IsToggleEnabled(Toggle::VulkanUseZeroInitializeWorkgroupMemoryExtension);
     req.tintOptions.use_storage_input_output_16 =
@@ -367,99 +378,99 @@ ResultOrError<ShaderModule::ModuleAndSpirv> ShaderModule::GetHandleAndSpirv(
         GetDevice()->IsToggleEnabled(Toggle::VulkanUseBufferRobustAccess2);
     req.tintOptions.polyfill_dot_4x8_packed =
         GetDevice()->IsToggleEnabled(Toggle::PolyFillPacked4x8DotProduct);
+    req.tintOptions.polyfill_pack_unpack_4x8_norm =
+        GetDevice()->IsToggleEnabled(Toggle::PolyfillPackUnpack4x8Norm);
     req.tintOptions.disable_polyfill_integer_div_mod =
         GetDevice()->IsToggleEnabled(Toggle::DisablePolyfillsOnIntegerDivisonAndModulo);
+    req.tintOptions.use_vulkan_memory_model =
+        GetDevice()->IsToggleEnabled(Toggle::UseVulkanMemoryModel);
 
-    // Set subgroup uniform control flow flag for subgroup experiment, if device has
-    // Chromium-experimental-subgroup-uniform-control-flow feature. (dawn:464)
-    if (GetDevice()->HasFeature(Feature::ChromiumExperimentalSubgroupUniformControlFlow)) {
-        req.tintOptions.experimental_require_subgroup_uniform_control_flow = true;
-    } else {
-        req.tintOptions.experimental_require_subgroup_uniform_control_flow = false;
-    }
     // Pass matrices to user functions by pointer on Qualcomm devices to workaround a known bug.
     // See crbug.com/tint/2045.
     if (ToBackend(GetDevice()->GetPhysicalDevice())->IsAndroidQualcomm()) {
         req.tintOptions.pass_matrix_by_pointer = true;
     }
 
-    const CombinedLimits& limits = GetDevice()->GetLimits();
-    req.limits = LimitsForCompilationRequest::Create(limits.v1);
+    // Set internal immediate constant offsets
+    if (HasImmediateConstants(&RenderImmediateConstants::clampFragDepth, pipelineImmediateMask)) {
+        uint32_t offsetStartBytes = GetImmediateByteOffsetInPipeline(
+            &RenderImmediateConstants::clampFragDepth, pipelineImmediateMask);
+        req.tintOptions.depth_range_offsets = {
+            offsetStartBytes, offsetStartBytes + kImmediateConstantElementByteSize};
+    }
+
+    req.limits = LimitsForCompilationRequest::Create(GetDevice()->GetLimits().v1);
+    req.adapterSupportedLimits =
+        LimitsForCompilationRequest::Create(GetDevice()->GetAdapter()->GetLimits().v1);
+    req.maxSubgroupSize = GetDevice()->GetAdapter()->GetPhysicalDevice()->GetSubgroupMaxSize();
 
     CacheResult<CompiledSpirv> compilation;
     DAWN_TRY_LOAD_OR_RUN(
         compilation, GetDevice(), std::move(req), CompiledSpirv::FromBlob,
         [](SpirvCompilationRequest r) -> ResultOrError<CompiledSpirv> {
-            tint::ast::transform::Manager transformManager;
-            tint::ast::transform::DataMap transformInputs;
-
-            // Many Vulkan drivers can't handle multi-entrypoint shader modules.
-            // Run before the renamer so that the entry point name matches `entryPointName` still.
-            transformManager.append(std::make_unique<tint::ast::transform::SingleEntryPoint>());
-            transformInputs.Add<tint::ast::transform::SingleEntryPoint::Config>(
-                std::string(r.entryPointName));
-
-            // Needs to run before all other transforms so that they can use builtin names safely.
-            if (!r.disableSymbolRenaming) {
-                transformManager.Add<tint::ast::transform::Renamer>();
-            }
-
-            if (r.substituteOverrideConfig) {
-                // This needs to run after SingleEntryPoint transform which removes unused overrides
-                // for current entry point.
-                transformManager.Add<tint::ast::transform::SubstituteOverride>();
-                transformInputs.Add<tint::ast::transform::SubstituteOverride::Config>(
-                    std::move(r.substituteOverrideConfig).value());
-            }
-
-            tint::Program program;
-            tint::ast::transform::DataMap transformOutputs;
-            {
-                TRACE_EVENT0(r.platform.UnsafeGetValue(), General, "RunTransforms");
-                DAWN_TRY_ASSIGN(program,
-                                RunTransforms(&transformManager, r.inputProgram, transformInputs,
-                                              &transformOutputs, nullptr));
-            }
-
-            // Get the entry point name after the renamer pass.
-            // TODO(dawn:2180): refactor out.
-            std::string remappedEntryPoint;
-            if (r.disableSymbolRenaming) {
-                remappedEntryPoint = r.entryPointName;
-            } else {
-                auto* data = transformOutputs.Get<tint::ast::transform::Renamer::Data>();
-                DAWN_ASSERT(data != nullptr);
-
-                auto it = data->remappings.find(r.entryPointName.data());
-                DAWN_ASSERT(it != data->remappings.end());
-                remappedEntryPoint = it->second;
-            }
-            DAWN_ASSERT(remappedEntryPoint != "");
-
-            // Validate workgroup size after program runs transforms.
-            if (r.stage == SingleShaderStage::Compute) {
-                Extent3D _;
-                DAWN_TRY_ASSIGN(_, ValidateComputeStageWorkgroupSize(
-                                       program, remappedEntryPoint.c_str(), r.limits,
-                                       r.maxSubgroupSizeForFullSubgroups));
-            }
-
             TRACE_EVENT0(r.platform.UnsafeGetValue(), General, "tint::spirv::writer::Generate()");
 
             // Convert the AST program to an IR module.
-            auto ir = tint::wgsl::reader::ProgramToLoweredIR(program);
-            DAWN_INVALID_IF(ir != tint::Success, "An error occurred while generating Tint IR\n%s",
-                            ir.Failure().reason.Str());
+            tint::Result<tint::core::ir::Module> ir;
+            {
+                SCOPED_DAWN_HISTOGRAM_TIMER_MICROS(r.platform.UnsafeGetValue(),
+                                                   "ShaderModuleProgramToIR");
+                ir = tint::wgsl::reader::ProgramToLoweredIR(*r.inputProgram);
+                DAWN_INVALID_IF(ir != tint::Success,
+                                "An error occurred while generating Tint IR\n%s",
+                                ir.Failure().reason);
+            }
 
-            // Generate SPIR-V from Tint IR.
-            auto tintResult = tint::spirv::writer::Generate(ir.Get(), r.tintOptions);
-            DAWN_INVALID_IF(tintResult != tint::Success,
-                            "An error occurred while generating SPIR-V\n%s",
-                            tintResult.Failure().reason.Str());
+            {
+                SCOPED_DAWN_HISTOGRAM_TIMER_MICROS(r.platform.UnsafeGetValue(),
+                                                   "ShaderModuleSingleEntryPoint");
+                // Many Vulkan drivers can't handle multi-entrypoint shader modules.
+                auto singleEntryPointResult =
+                    tint::core::ir::transform::SingleEntryPoint(ir.Get(), r.entryPointName);
+                DAWN_INVALID_IF(singleEntryPointResult != tint::Success,
+                                "Pipeline single entry point (IR) failed:\n%s",
+                                singleEntryPointResult.Failure().reason);
+            }
+
+            if (r.substituteOverrideConfig) {
+                SCOPED_DAWN_HISTOGRAM_TIMER_MICROS(r.platform.UnsafeGetValue(),
+                                                   "ShaderModuleSubstituteOverrides");
+                // this needs to run after SingleEntryPoint transform which removes unused
+                // overrides for the current entry point.
+                tint::core::ir::transform::SubstituteOverridesConfig cfg;
+                cfg.map = r.substituteOverrideConfig->map;
+                auto substituteOverridesResult =
+                    tint::core::ir::transform::SubstituteOverrides(ir.Get(), cfg);
+                DAWN_INVALID_IF(substituteOverridesResult != tint::Success,
+                                "Pipeline override substitution (IR) failed:\n%s",
+                                substituteOverridesResult.Failure().reason);
+            }
+
+            tint::Result<tint::spirv::writer::Output> tintResult;
+            {
+                SCOPED_DAWN_HISTOGRAM_TIMER_MICROS(r.platform.UnsafeGetValue(),
+                                                   "ShaderModuleGenerateSPIRV");
+                // Generate SPIR-V from Tint IR.
+                tintResult = tint::spirv::writer::Generate(ir.Get(), r.tintOptions);
+                DAWN_INVALID_IF(tintResult != tint::Success,
+                                "An error occurred while generating SPIR-V\n%s",
+                                tintResult.Failure().reason);
+            }
+
+            // Workgroup validation has to come after `Generate` because it may require
+            // overrides to have been substituted.
+            if (r.stage == SingleShaderStage::Compute) {
+                Extent3D _;
+                DAWN_TRY_ASSIGN(
+                    _, ValidateComputeStageWorkgroupSize(
+                           tintResult->workgroup_info.x, tintResult->workgroup_info.y,
+                           tintResult->workgroup_info.z, tintResult->workgroup_info.storage_size,
+                           r.usesSubgroupMatrix, r.maxSubgroupSize, r.limits,
+                           r.adapterSupportedLimits.UnsafeGetValue()));
+            }
 
             CompiledSpirv result;
             result.spirv = std::move(tintResult.Get().spirv);
-            result.remappedEntryPoint = remappedEntryPoint;
             return result;
         },
         "Vulkan.CompileShaderToSPIRV");
@@ -472,7 +483,7 @@ ResultOrError<ShaderModule::ModuleAndSpirv> ShaderModule::GetHandleAndSpirv(
     VkShaderModuleCreateInfo createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     createInfo.pNext = nullptr;
-    createInfo.flags = 0;
+    createInfo.flags = 0u;
     createInfo.codeSize = compilation->spirv.size() * sizeof(uint32_t);
     createInfo.pCode = compilation->spirv.data();
 
@@ -480,6 +491,7 @@ ResultOrError<ShaderModule::ModuleAndSpirv> ShaderModule::GetHandleAndSpirv(
 
     VkShaderModule newHandle = VK_NULL_HANDLE;
     {
+        SCOPED_DAWN_HISTOGRAM_TIMER_MICROS(GetDevice()->GetPlatform(), "Vulkan.CreateShaderModule");
         TRACE_EVENT0(GetDevice()->GetPlatform(), General, "vkCreateShaderModule");
         DAWN_TRY(CheckVkSuccess(
             device->fn.CreateShaderModule(device->GetVkDevice(), &createInfo, nullptr, &*newHandle),

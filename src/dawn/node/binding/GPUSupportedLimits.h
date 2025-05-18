@@ -39,7 +39,7 @@ namespace wgpu::binding {
 // GPUSupportedLimits is an implementation of interop::GPUSupportedLimits.
 class GPUSupportedLimits final : public interop::GPUSupportedLimits {
   public:
-    explicit GPUSupportedLimits(wgpu::SupportedLimits limits);
+    explicit GPUSupportedLimits(wgpu::Limits limits);
 
     // interop::GPUSupportedLimits interface compliance
     uint32_t getMaxTextureDimension1D(Napi::Env) override;
@@ -73,12 +73,17 @@ class GPUSupportedLimits final : public interop::GPUSupportedLimits {
     uint32_t getMaxComputeWorkgroupSizeY(Napi::Env) override;
     uint32_t getMaxComputeWorkgroupSizeZ(Napi::Env) override;
     uint32_t getMaxComputeWorkgroupsPerDimension(Napi::Env) override;
-    std::variant<uint32_t, interop::UndefinedType> getMinSubgroupSize(Napi::Env) override;
-    std::variant<uint32_t, interop::UndefinedType> getMaxSubgroupSize(Napi::Env) override;
+    std::variant<uint32_t, interop::UndefinedType> getMaxStorageBuffersInFragmentStage(
+        Napi::Env) override;
+    std::variant<uint32_t, interop::UndefinedType> getMaxStorageTexturesInFragmentStage(
+        Napi::Env) override;
+    std::variant<uint32_t, interop::UndefinedType> getMaxStorageBuffersInVertexStage(
+        Napi::Env) override;
+    std::variant<uint32_t, interop::UndefinedType> getMaxStorageTexturesInVertexStage(
+        Napi::Env) override;
 
   private:
-    wgpu::SupportedLimits limits_;
-    std::optional<wgpu::DawnExperimentalSubgroupLimits> subgroup_limits_;
+    wgpu::Limits limits_;
 };
 
 }  // namespace wgpu::binding

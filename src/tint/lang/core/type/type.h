@@ -58,6 +58,9 @@ enum Flag {
     /// Type has a fixed footprint.
     /// @see https://www.w3.org/TR/WGSL/#fixed-footprint-types
     kFixedFootprint,
+    /// Type is host-shareable.
+    /// @see https://www.w3.org/TR/WGSL/#host-shareable
+    kHostShareable,
 };
 
 /// An alias to tint::EnumSet<Flag>
@@ -129,6 +132,12 @@ class Type : public Castable<Type, UniqueNode> {
     /// @see https://www.w3.org/TR/WGSL/#fixed-footprint-types
     inline bool HasFixedFootprint() const { return flags_.Contains(Flag::kFixedFootprint); }
 
+    /// @returns true if type is host-shareable
+    /// https://www.w3.org/TR/WGSL/#host-shareable
+    inline bool IsHostShareable() const { return flags_.Contains(Flag::kHostShareable); }
+
+    /// @returns true if the type is a scalar
+    bool IsScalar() const;
     /// @returns true if this type is a float scalar
     bool IsFloatScalar() const;
     /// @returns true if this type is a float matrix
@@ -159,12 +168,14 @@ class Type : public Castable<Type, UniqueNode> {
     bool IsAbstractScalarOrVector() const;
     /// @returns true if this type is boolean scalar or vector
     bool IsBoolScalarOrVector() const;
+    /// @returns true if this type is boolean vector
+    bool IsBoolVector() const;
     /// @returns true if this type is a vector of scalar type
     bool IsScalarVector() const;
     /// @returns true if this type is a numeric scale or vector
     bool IsNumericScalarOrVector() const;
     /// @returns true if this type is a handle type
-    bool IsHandle() const;
+    virtual bool IsHandle() const;
     /// @returns true if this type is an abstract type. It could be a numeric directly or an
     /// abstract container which holds an abstract numeric
     bool IsAbstract() const;
@@ -185,7 +196,7 @@ class Type : public Castable<Type, UniqueNode> {
     /// @param type_if_invalid the type to return if this type has no child elements.
     /// @param count_if_invalid the count to return if this type has no child elements, or the
     /// number is unbounded.
-    /// @returns The child element type and the the number of child elements held by this type.
+    /// @returns The child element type and the number of child elements held by this type.
     /// If this type has no child element types, then @p invalid is returned.
     /// If this type can hold a mix of different elements types (like a Struct), then
     /// `[type_if_invalid, N]` is returned, where `N` is the number of elements.

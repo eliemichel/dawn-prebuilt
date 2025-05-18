@@ -439,7 +439,7 @@ ResultOrError<Ref<SharedTextureMemory>> SharedTextureMemory::Create(
     // import's constraint.
     memoryRequirements.memoryTypeBits &= fdProperties.memoryTypeBits;
     int memoryTypeIndex = device->GetResourceMemoryAllocator()->FindBestTypeIndex(
-        memoryRequirements, MemoryKind::Opaque);
+        memoryRequirements, MemoryKind::DeviceLocal);
     DAWN_INVALID_IF(memoryTypeIndex == -1, "Unable to find an appropriate memory type for import.");
 
     SystemHandle memoryFD;
@@ -493,27 +493,12 @@ ResultOrError<Ref<SharedTextureMemory>> SharedTextureMemory::Create(
         VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID;
 
     // Reflect the properties of the AHardwareBuffer.
-    AHardwareBuffer_Desc aHardwareBufferDesc{};
-    ahbFunctions->Describe(aHardwareBuffer, &aHardwareBufferDesc);
+    SharedTextureMemoryProperties properties =
+        GetAHBSharedTextureMemoryProperties(ahbFunctions, aHardwareBuffer);
 
-    SharedTextureMemoryProperties properties;
-    properties.size = {aHardwareBufferDesc.width, aHardwareBufferDesc.height,
-                       aHardwareBufferDesc.layers};
     if (useExternalFormat) {
-        if (aHardwareBufferDesc.usage & AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE) {
-            properties.usage = wgpu::TextureUsage::TextureBinding;
-        }
-    } else {
-        properties.usage = wgpu::TextureUsage::CopySrc | wgpu::TextureUsage::CopyDst;
-        if (aHardwareBufferDesc.usage & AHARDWAREBUFFER_USAGE_GPU_FRAMEBUFFER) {
-            properties.usage |= wgpu::TextureUsage::RenderAttachment;
-        }
-        if (aHardwareBufferDesc.usage & AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE) {
-            properties.usage |= wgpu::TextureUsage::TextureBinding;
-        }
-        if (aHardwareBufferDesc.usage & AHARDWAREBUFFER_USAGE_GPU_DATA_BUFFER) {
-            properties.usage |= wgpu::TextureUsage::StorageBinding;
-        }
+        // When using the external YUV texture format, only TextureBinding usage is valid.
+        properties.usage &= wgpu::TextureUsage::TextureBinding;
     }
 
     VkFormat vkFormat;
@@ -684,7 +669,7 @@ ResultOrError<Ref<SharedTextureMemory>> SharedTextureMemory::Create(
         VkMemoryRequirements memoryRequirements;
         memoryRequirements.memoryTypeBits = bufferProperties.memoryTypeBits;
         int memoryTypeIndex = device->GetResourceMemoryAllocator()->FindBestTypeIndex(
-            memoryRequirements, MemoryKind::Opaque);
+            memoryRequirements, MemoryKind::DeviceLocal);
         DAWN_INVALID_IF(memoryTypeIndex == -1,
                         "Unable to find an appropriate memory type for import.");
 
@@ -1046,13 +1031,12 @@ ResultOrError<FenceAndSignalValue> SharedTextureMemory::EndAccessImpl(
                     wgpu::FeatureName::SharedFenceVkSemaphoreZirconHandle,
                     wgpu::SharedFenceType::VkSemaphoreZirconHandle);
 #elif DAWN_PLATFORM_IS(LINUX)
-    DAWN_INVALID_IF(!GetDevice()->HasFeature(Feature::SharedFenceVkSemaphoreSyncFD) &&
+    DAWN_INVALID_IF(!GetDevice()->HasFeature(Feature::SharedFenceSyncFD) &&
                         !GetDevice()->HasFeature(Feature::SharedFenceVkSemaphoreOpaqueFD),
                     "Required feature (%s or %s) for %s or %s is missing.",
                     wgpu::FeatureName::SharedFenceVkSemaphoreOpaqueFD,
-                    wgpu::FeatureName::SharedFenceVkSemaphoreSyncFD,
-                    wgpu::SharedFenceType::VkSemaphoreOpaqueFD,
-                    wgpu::SharedFenceType::VkSemaphoreSyncFD);
+                    wgpu::FeatureName::SharedFenceSyncFD,
+                    wgpu::SharedFenceType::VkSemaphoreOpaqueFD, wgpu::SharedFenceType::SyncFD);
 #endif
 
     SystemHandle handle;
@@ -1080,8 +1064,8 @@ ResultOrError<FenceAndSignalValue> SharedTextureMemory::EndAccessImpl(
     DAWN_TRY_ASSIGN(fence,
                     SharedFence::Create(ToBackend(GetDevice()), "Internal VkSemaphore", &desc));
 #elif DAWN_PLATFORM_IS(LINUX)
-    if (GetDevice()->HasFeature(Feature::SharedFenceVkSemaphoreSyncFD)) {
-        SharedFenceVkSemaphoreSyncFDDescriptor desc;
+    if (GetDevice()->HasFeature(Feature::SharedFenceSyncFD)) {
+        SharedFenceSyncFDDescriptor desc;
         desc.handle = handle.Get();
 
         DAWN_TRY_ASSIGN(fence,

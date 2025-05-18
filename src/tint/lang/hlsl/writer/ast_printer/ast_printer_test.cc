@@ -41,18 +41,18 @@ TEST_F(HlslASTPrinterTest, InvalidProgram) {
     ASSERT_FALSE(program.IsValid());
     auto result = Generate(program, Options{});
     EXPECT_NE(result, Success);
-    EXPECT_EQ(result.Failure().reason.Str(), "error: make the program invalid");
+    EXPECT_EQ(result.Failure().reason, "error: make the program invalid");
 }
 
 TEST_F(HlslASTPrinterTest, UnsupportedExtension) {
-    Enable(Source{{12, 34}}, wgsl::Extension::kChromiumInternalRelaxedUniformLayout);
+    Enable(Source{{12, 34}}, wgsl::Extension::kChromiumExperimentalFramebufferFetch);
 
     ASTPrinter& gen = Build();
 
     ASSERT_FALSE(gen.Generate());
     EXPECT_EQ(
         gen.Diagnostics().Str(),
-        R"(12:34 error: HLSL backend does not support extension 'chromium_internal_relaxed_uniform_layout')");
+        R"(12:34 error: HLSL backend does not support extension 'chromium_experimental_framebuffer_fetch')");
 }
 
 TEST_F(HlslASTPrinterTest, RequiresDirective) {

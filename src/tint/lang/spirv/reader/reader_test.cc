@@ -35,38 +35,10 @@
 #include "src/tint/lang/core/ir/module.h"
 #include "src/tint/lang/core/ir/validator.h"
 #include "src/tint/lang/spirv/reader/common/helper_test.h"
+#include "src/tint/lang/spirv/reader/helper_test.h"
 
 namespace tint::spirv::reader {
 namespace {
-
-class SpirvReaderTest : public testing::Test {
-  protected:
-    /// Run the reader on a SPIR-V module and return the Tint IR or an error string.
-    /// @param spirv_asm the SPIR-V assembly to read
-    /// @returns the disassembled Tint IR or an error
-    Result<std::string> Run(std::string spirv_asm) {
-        // Assemble the SPIR-V input.
-        auto binary = Assemble(spirv_asm);
-        if (binary != Success) {
-            return binary.Failure();
-        }
-
-        // Read the SPIR-V to produce a core IR module.
-        auto ir = ReadIR(binary.Get());
-        if (ir != Success) {
-            return ir.Failure();
-        }
-
-        // Validate the IR module against the core dialect.
-        auto validated = core::ir::Validate(ir.Get());
-        if (validated != Success) {
-            return validated.Failure();
-        }
-
-        // Return the disassembled IR module.
-        return "\n" + core::ir::Disassembler(ir.Get()).Plain();
-    }
-};
 
 TEST_F(SpirvReaderTest, UnsupportedExtension) {
     auto got = Run(R"(
@@ -83,8 +55,8 @@ TEST_F(SpirvReaderTest, UnsupportedExtension) {
                OpFunctionEnd
 )");
     ASSERT_NE(got, Success);
-    EXPECT_EQ(got.Failure().reason.Str(),
-              "error: SPIR-V extension 'SPV_KHR_variable_pointers' is not supported");
+    EXPECT_EQ(got.Failure().reason,
+              "SPIR-V extension 'SPV_KHR_variable_pointers' is not supported");
 }
 
 TEST_F(SpirvReaderTest, Load_VectorComponent) {
@@ -110,9 +82,9 @@ TEST_F(SpirvReaderTest, Load_VectorComponent) {
 )");
     ASSERT_EQ(got, Success);
     EXPECT_EQ(got, R"(
-%main = @compute @workgroup_size(1, 1, 1) func():void {
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B1: {
-    %2:ptr<function, vec4<u32>, read_write> = var
+    %2:ptr<function, vec4<u32>, read_write> = var undef
     %3:u32 = load_vector_element %2, 2u
     ret
   }
@@ -144,9 +116,9 @@ TEST_F(SpirvReaderTest, Store_VectorComponent) {
 )");
     ASSERT_EQ(got, Success);
     EXPECT_EQ(got, R"(
-%main = @compute @workgroup_size(1, 1, 1) func():void {
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B1: {
-    %2:ptr<function, vec4<u32>, read_write> = var
+    %2:ptr<function, vec4<u32>, read_write> = var undef
     store_vector_element %2, 2u, 42u
     ret
   }
@@ -262,8 +234,8 @@ tint_symbol_4 = struct @align(16) {
 }
 
 $B1: {  # root
-  %1:ptr<private, f32, read_write> = var
-  %2:ptr<private, tint_symbol_2, read_write> = var
+  %1:ptr<private, f32, read_write> = var undef
+  %2:ptr<private, tint_symbol_2, read_write> = var undef
 }
 
 %main_inner = func():void {
@@ -345,47 +317,132 @@ TEST_F(SpirvReaderTest, ClipDistances) {
 )");
     ASSERT_EQ(got, Success);
     EXPECT_EQ(got, R"(
-tint_symbol_2 = struct @align(16) {
-  tint_symbol:vec4<f32> @offset(0)
-  tint_symbol_1:array<f32, 1> @offset(16)
+VertexOutputs = struct @align(16) {
+  position:vec4<f32> @offset(0)
+  clipDistance:array<f32, 1> @offset(16)
 }
 
-tint_symbol_6 = struct @align(16) {
-  tint_symbol_3:vec4<f32> @offset(0), @builtin(position)
-  tint_symbol_4:array<f32, 1> @offset(16), @builtin(clip_distances)
-  tint_symbol_5:f32 @offset(20), @builtin(__point_size)
+tint_symbol = struct @align(16) {
+  main_position_Output:vec4<f32> @offset(0), @builtin(position)
+  main_clip_distances_Output:array<f32, 1> @offset(16), @builtin(clip_distances)
+  main___point_size_Output:f32 @offset(20), @builtin(__point_size)
 }
 
 $B1: {  # root
-  %1:ptr<private, vec4<f32>, read_write> = var
-  %2:ptr<private, array<f32, 1>, read_write> = var
-  %3:ptr<private, f32, read_write> = var
+  %main_position_Output:ptr<private, vec4<f32>, read_write> = var undef
+  %main_clip_distances_Output:ptr<private, array<f32, 1>, read_write> = var undef
+  %main___point_size_Output:ptr<private, f32, read_write> = var undef
 }
 
-%4 = func():tint_symbol_2 {
+%main_inner = func():VertexOutputs {
   $B2: {
-    ret tint_symbol_2(vec4<f32>(0.0f), array<f32, 1>(0.0f))
+    ret VertexOutputs(vec4<f32>(0.0f), array<f32, 1>(0.0f))
   }
 }
-%main_inner = func():void {
+%main_inner_1 = func():void {  # %main_inner_1: 'main_inner'
   $B3: {
-    %6:tint_symbol_2 = call %4
+    %6:VertexOutputs = call %main_inner
     %7:vec4<f32> = access %6, 0u
-    store %1, %7
+    store %main_position_Output, %7
     %8:array<f32, 1> = access %6, 1u
-    store %2, %8
-    store %3, 1.0f
+    store %main_clip_distances_Output, %8
+    store %main___point_size_Output, 1.0f
     ret
   }
 }
-%main = @vertex func():tint_symbol_6 {
+%main = @vertex func():tint_symbol {
   $B4: {
-    %10:void = call %main_inner
-    %11:vec4<f32> = load %1
-    %12:array<f32, 1> = load %2
-    %13:f32 = load %3
-    %14:tint_symbol_6 = construct %11, %12, %13
+    %10:void = call %main_inner_1
+    %11:vec4<f32> = load %main_position_Output
+    %12:array<f32, 1> = load %main_clip_distances_Output
+    %13:f32 = load %main___point_size_Output
+    %14:tint_symbol = construct %11, %12, %13
     ret %14
+  }
+}
+)");
+}
+
+TEST_F(SpirvReaderTest, ClipDistances_gl_PerVertex) {
+    auto got = Run(R"(
+               OpCapability Shader
+               OpCapability ClipDistance
+          %1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Vertex %main "main" %_
+               OpSource GLSL 450
+               OpName %main "main"
+               OpName %gl_PerVertex "gl_PerVertex"
+               OpMemberName %gl_PerVertex 0 "gl_Position"
+               OpMemberName %gl_PerVertex 1 "gl_ClipDistance"
+               OpName %_ ""
+               OpDecorate %gl_PerVertex Block
+               OpMemberDecorate %gl_PerVertex 0 BuiltIn Position
+               OpMemberDecorate %gl_PerVertex 1 BuiltIn ClipDistance
+       %void = OpTypeVoid
+          %3 = OpTypeFunction %void
+      %float = OpTypeFloat 32
+    %v4float = OpTypeVector %float 4
+       %uint = OpTypeInt 32 0
+     %uint_2 = OpConstant %uint 2
+%_arr_float_uint_2 = OpTypeArray %float %uint_2
+%gl_PerVertex = OpTypeStruct %v4float %_arr_float_uint_2
+%_ptr_Output_gl_PerVertex = OpTypePointer Output %gl_PerVertex
+          %_ = OpVariable %_ptr_Output_gl_PerVertex Output
+        %int = OpTypeInt 32 1
+      %int_1 = OpConstant %int 1
+      %int_0 = OpConstant %int 0
+    %float_0 = OpConstant %float 0
+%_ptr_Output_float = OpTypePointer Output %float
+         %21 = OpConstantComposite %v4float %float_0 %float_0 %float_0 %float_0
+%_ptr_Output_v4float = OpTypePointer Output %v4float
+       %main = OpFunction %void None %3
+          %5 = OpLabel
+         %19 = OpAccessChain %_ptr_Output_float %_ %int_1 %int_0
+               OpStore %19 %float_0
+         %20 = OpAccessChain %_ptr_Output_float %_ %int_1 %int_1
+               OpStore %20 %float_0
+         %23 = OpAccessChain %_ptr_Output_v4float %_ %int_0
+               OpStore %23 %21
+               OpReturn
+               OpFunctionEnd
+)");
+    ASSERT_EQ(got, Success);
+    EXPECT_EQ(got, R"(
+gl_PerVertex = struct @align(16) {
+  gl_Position:vec4<f32> @offset(0)
+  gl_ClipDistance:array<f32, 2> @offset(16)
+}
+
+tint_symbol = struct @align(16) {
+  gl_Position:vec4<f32> @offset(0), @builtin(position)
+  gl_ClipDistance:array<f32, 2> @offset(16), @builtin(clip_distances)
+}
+
+$B1: {  # root
+  %1:ptr<private, gl_PerVertex, read_write> = var undef
+}
+
+%main_inner = func():void {
+  $B2: {
+    %3:ptr<private, f32, read_write> = access %1, 1i, 0i
+    store %3, 0.0f
+    %4:ptr<private, f32, read_write> = access %1, 1i, 1i
+    store %4, 0.0f
+    %5:ptr<private, vec4<f32>, read_write> = access %1, 0i
+    store %5, vec4<f32>(0.0f)
+    ret
+  }
+}
+%main = @vertex func():tint_symbol {
+  $B3: {
+    %7:void = call %main_inner
+    %8:ptr<private, vec4<f32>, read_write> = access %1, 0u
+    %9:vec4<f32> = load %8
+    %10:ptr<private, array<f32, 2>, read_write> = access %1, 1u
+    %11:array<f32, 2> = load %10
+    %12:tint_symbol = construct %9, %11
+    ret %12
   }
 }
 )");
@@ -426,7 +483,7 @@ TEST_F(SpirvReaderTest, SampleMask) {
     ASSERT_EQ(got, Success);
     EXPECT_EQ(got, R"(
 $B1: {  # root
-  %1:ptr<private, array<u32, 1>, read_write> = var
+  %1:ptr<private, array<u32, 1>, read_write> = var undef
 }
 
 %main_inner = func(%3:array<u32, 1>):void {
@@ -511,48 +568,48 @@ TEST_F(SpirvReaderTest, BlendSrc) {
 
     ASSERT_EQ(got, Success);
     EXPECT_EQ(got, R"(
-tint_symbol_2 = struct @align(16) {
-  tint_symbol:vec4<f32> @offset(0)
-  tint_symbol_1:vec4<f32> @offset(16)
+FragOutput = struct @align(16) {
+  color:vec4<f32> @offset(0)
+  blend:vec4<f32> @offset(16)
 }
 
-tint_symbol_5 = struct @align(16) {
-  tint_symbol_3:vec4<f32> @offset(0), @location(0), @blend_src(0)
-  tint_symbol_4:vec4<f32> @offset(16), @location(0), @blend_src(1)
+tint_symbol = struct @align(16) {
+  frag_main_loc0_idx0_Output:vec4<f32> @offset(0), @location(0), @blend_src(0)
+  frag_main_loc0_idx1_Output:vec4<f32> @offset(16), @location(0), @blend_src(1)
 }
 
 $B1: {  # root
-  %1:ptr<private, vec4<f32>, read_write> = var
-  %2:ptr<private, vec4<f32>, read_write> = var
+  %frag_main_loc0_idx0_Output:ptr<private, vec4<f32>, read_write> = var undef
+  %frag_main_loc0_idx1_Output:ptr<private, vec4<f32>, read_write> = var undef
 }
 
-%3 = func():tint_symbol_2 {
+%frag_main_inner = func():FragOutput {
   $B2: {
-    %4:ptr<function, tint_symbol_2, read_write> = var, tint_symbol_2(vec4<f32>(0.0f))
-    %5:ptr<function, vec4<f32>, read_write> = access %4, 0u
+    %output:ptr<function, FragOutput, read_write> = var FragOutput(vec4<f32>(0.0f))
+    %5:ptr<function, vec4<f32>, read_write> = access %output, 0u
     store %5, vec4<f32>(0.5f, 0.5f, 0.5f, 1.0f)
-    %6:ptr<function, vec4<f32>, read_write> = access %4, 1u
+    %6:ptr<function, vec4<f32>, read_write> = access %output, 1u
     store %6, vec4<f32>(0.5f, 0.5f, 0.5f, 1.0f)
-    %7:tint_symbol_2 = load %4
+    %7:FragOutput = load %output
     ret %7
   }
 }
-%frag_main_inner = func():void {
+%frag_main_inner_1 = func():void {  # %frag_main_inner_1: 'frag_main_inner'
   $B3: {
-    %9:tint_symbol_2 = call %3
+    %9:FragOutput = call %frag_main_inner
     %10:vec4<f32> = access %9, 0u
-    store %1, %10
+    store %frag_main_loc0_idx0_Output, %10
     %11:vec4<f32> = access %9, 1u
-    store %2, %11
+    store %frag_main_loc0_idx1_Output, %11
     ret
   }
 }
-%frag_main = @fragment func():tint_symbol_5 {
+%frag_main = @fragment func():tint_symbol {
   $B4: {
-    %13:void = call %frag_main_inner
-    %14:vec4<f32> = load %1
-    %15:vec4<f32> = load %2
-    %16:tint_symbol_5 = construct %14, %15
+    %13:void = call %frag_main_inner_1
+    %14:vec4<f32> = load %frag_main_loc0_idx0_Output
+    %15:vec4<f32> = load %frag_main_loc0_idx1_Output
+    %16:tint_symbol = construct %14, %15
     ret %16
   }
 }

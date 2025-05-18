@@ -38,26 +38,6 @@ namespace {
 
 using ResolverSubgroupsExtensionTest = ResolverTest;
 
-// Enabling subgroups_f16 without enabling subgroups should fail.
-TEST_F(ResolverSubgroupsExtensionTest, UseSubgroupsF16WithoutSubgroups) {
-    Enable(wgsl::Extension::kF16);
-    Enable(wgsl::Extension::kSubgroupsF16);
-
-    EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(),
-              R"(error: extension 'subgroups_f16' cannot be used without extension 'subgroups')");
-}
-
-// Enabling subgroups_f16 without enabling f16 should fail.
-TEST_F(ResolverSubgroupsExtensionTest, UseSubgroupsF16WithoutF16) {
-    Enable(wgsl::Extension::kSubgroups);
-    Enable(wgsl::Extension::kSubgroupsF16);
-
-    EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(),
-              R"(error: extension 'subgroups_f16' cannot be used without extension 'f16')");
-}
-
 // Using a subgroup_size builtin attribute without subgroups enabled should fail.
 TEST_F(ResolverSubgroupsExtensionTest, UseSubgroupSizeAttribWithoutExtensionError) {
     Structure("Inputs",
@@ -95,32 +75,9 @@ TEST_F(ResolverSubgroupsExtensionTest, UseSubgroupSizeAttribWithExtension) {
     EXPECT_TRUE(r()->Resolve()) << r()->error();
 }
 
-// Using a subgroup_size builtin attribute with chromium_experimental_subgroups enabled should pass.
-TEST_F(ResolverSubgroupsExtensionTest, UseSubgroupSizeAttribWithExperimentalExtension) {
-    Enable(wgsl::Extension::kChromiumExperimentalSubgroups);
-    Structure("Inputs",
-              Vector{
-                  Member("a", ty.u32(), Vector{Builtin(core::BuiltinValue::kSubgroupSize)}),
-              });
-
-    EXPECT_TRUE(r()->Resolve()) << r()->error();
-}
-
 // Using a subgroup_invocation_id builtin attribute with subgroups enabled should pass.
 TEST_F(ResolverSubgroupsExtensionTest, UseSubgroupInvocationIdAttribWithExtension) {
     Enable(wgsl::Extension::kSubgroups);
-    Structure("Inputs",
-              Vector{
-                  Member("a", ty.u32(), Vector{Builtin(core::BuiltinValue::kSubgroupInvocationId)}),
-              });
-
-    EXPECT_TRUE(r()->Resolve()) << r()->error();
-}
-
-// Using a subgroup_invocation_id builtin attribute with chromium_experimental_subgroups enabled
-// should pass.
-TEST_F(ResolverSubgroupsExtensionTest, UseSubgroupInvocationIdAttribWithExperimentalExtension) {
-    Enable(wgsl::Extension::kChromiumExperimentalSubgroups);
     Structure("Inputs",
               Vector{
                   Member("a", ty.u32(), Vector{Builtin(core::BuiltinValue::kSubgroupInvocationId)}),
@@ -242,6 +199,12 @@ TEST_F(ResolverSubgroupsExtensionTest, SubgroupInvocationIdComputeShaderOutput) 
     EXPECT_EQ(r()->error(),
               "1:2 error: '@builtin(subgroup_invocation_id)' is only valid as a compute or "
               "fragment shader input");
+}
+
+// Using the subgroup_uniformity diagnostic rule without subgroups enabled should succeed.
+TEST_F(ResolverSubgroupsExtensionTest, UseSubgroupUniformityRuleWithoutExtensionError) {
+    DiagnosticDirective(wgsl::DiagnosticSeverity::kOff, "subgroup_uniformity");
+    EXPECT_TRUE(r()->Resolve()) << r()->error();
 }
 
 }  // namespace

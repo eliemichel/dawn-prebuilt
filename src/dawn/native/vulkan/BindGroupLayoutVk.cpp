@@ -78,10 +78,12 @@ VkDescriptorType VulkanDescriptorType(const BindingInfo& bindingInfo) {
                 case wgpu::BufferBindingType::Storage:
                 case kInternalStorageBufferBinding:
                 case wgpu::BufferBindingType::ReadOnlyStorage:
+                case kInternalReadOnlyStorageBufferBinding:
                     if (layout.hasDynamicOffset) {
                         return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
                     }
                     return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                case wgpu::BufferBindingType::BindingNotUsed:
                 case wgpu::BufferBindingType::Undefined:
                     DAWN_UNREACHABLE();
                     return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -263,10 +265,16 @@ ResultOrError<Ref<BindGroup>> BindGroupLayout::AllocateBindGroup(
     return AcquireRef(mBindGroupAllocator->Allocate(device, descriptor, descriptorSetAllocation));
 }
 
-void BindGroupLayout::DeallocateBindGroup(BindGroup* bindGroup,
-                                          DescriptorSetAllocation* descriptorSetAllocation) {
-    mDescriptorSetAllocator->Deallocate(descriptorSetAllocation);
+void BindGroupLayout::DeallocateBindGroup(BindGroup* bindGroup) {
     mBindGroupAllocator->Deallocate(bindGroup);
+}
+
+void BindGroupLayout::DeallocateDescriptorSet(DescriptorSetAllocation* descriptorSetAllocation) {
+    mDescriptorSetAllocator->Deallocate(descriptorSetAllocation);
+}
+
+void BindGroupLayout::ReduceMemoryUsage() {
+    mBindGroupAllocator->DeleteEmptySlabs();
 }
 
 std::optional<BindingIndex> BindGroupLayout::GetStaticSamplerIndexForTexture(

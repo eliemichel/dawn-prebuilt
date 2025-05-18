@@ -46,8 +46,6 @@ if(TINT_BUILD_SPV_WRITER)
 # Condition: TINT_BUILD_SPV_WRITER
 ################################################################################
 tint_add_target(tint_lang_spirv_writer lib
-  lang/spirv/writer/output.cc
-  lang/spirv/writer/output.h
   lang/spirv/writer/writer.cc
   lang/spirv/writer/writer.h
 )
@@ -55,23 +53,20 @@ tint_add_target(tint_lang_spirv_writer lib
 tint_target_add_dependencies(tint_lang_spirv_writer lib
   tint_api_common
   tint_lang_core
-  tint_lang_core_common
   tint_lang_core_constant
   tint_lang_core_ir
+  tint_lang_core_ir_transform
   tint_lang_core_type
+  tint_utils
   tint_utils_containers
   tint_utils_diagnostic
   tint_utils_ice
-  tint_utils_id
   tint_utils_macros
   tint_utils_math
   tint_utils_memory
-  tint_utils_reflection
-  tint_utils_result
   tint_utils_rtti
   tint_utils_symbol
   tint_utils_text
-  tint_utils_traits
 )
 
 tint_target_add_external_dependencies(tint_lang_spirv_writer lib
@@ -129,19 +124,16 @@ tint_target_add_dependencies(tint_lang_spirv_writer_test test
   tint_lang_core_intrinsic
   tint_lang_core_ir
   tint_lang_core_type
+  tint_utils
   tint_utils_containers
   tint_utils_diagnostic
   tint_utils_ice
-  tint_utils_id
   tint_utils_macros
   tint_utils_math
   tint_utils_memory
-  tint_utils_reflection
-  tint_utils_result
   tint_utils_rtti
   tint_utils_symbol
   tint_utils_text
-  tint_utils_traits
 )
 
 tint_target_add_external_dependencies(tint_lang_spirv_writer_test test
@@ -165,63 +157,6 @@ if(TINT_BUILD_SPV_WRITER)
 endif(TINT_BUILD_SPV_WRITER)
 
 endif(TINT_BUILD_SPV_WRITER)
-if(TINT_BUILD_SPV_WRITER AND TINT_BUILD_WGSL_READER)
-################################################################################
-# Target:    tint_lang_spirv_writer_bench
-# Kind:      bench
-# Condition: TINT_BUILD_SPV_WRITER AND TINT_BUILD_WGSL_READER
-################################################################################
-tint_add_target(tint_lang_spirv_writer_bench bench
-  lang/spirv/writer/writer_bench.cc
-)
-
-tint_target_add_dependencies(tint_lang_spirv_writer_bench bench
-  tint_api_common
-  tint_lang_core
-  tint_lang_core_constant
-  tint_lang_core_ir
-  tint_lang_core_type
-  tint_lang_wgsl
-  tint_lang_wgsl_ast
-  tint_lang_wgsl_common
-  tint_lang_wgsl_features
-  tint_lang_wgsl_program
-  tint_lang_wgsl_sem
-  tint_utils_containers
-  tint_utils_diagnostic
-  tint_utils_ice
-  tint_utils_id
-  tint_utils_macros
-  tint_utils_math
-  tint_utils_memory
-  tint_utils_reflection
-  tint_utils_result
-  tint_utils_rtti
-  tint_utils_symbol
-  tint_utils_text
-  tint_utils_traits
-)
-
-tint_target_add_external_dependencies(tint_lang_spirv_writer_bench bench
-  "google-benchmark"
-  "src_utils"
-)
-
-if(TINT_BUILD_SPV_WRITER)
-  tint_target_add_dependencies(tint_lang_spirv_writer_bench bench
-    tint_lang_spirv_writer
-    tint_lang_spirv_writer_common
-  )
-endif(TINT_BUILD_SPV_WRITER)
-
-if(TINT_BUILD_WGSL_READER)
-  tint_target_add_dependencies(tint_lang_spirv_writer_bench bench
-    tint_cmd_bench_bench
-    tint_lang_wgsl_reader
-  )
-endif(TINT_BUILD_WGSL_READER)
-
-endif(TINT_BUILD_SPV_WRITER AND TINT_BUILD_WGSL_READER)
 if(TINT_BUILD_SPV_WRITER)
 ################################################################################
 # Target:    tint_lang_spirv_writer_fuzz
@@ -229,7 +164,7 @@ if(TINT_BUILD_SPV_WRITER)
 # Condition: TINT_BUILD_SPV_WRITER
 ################################################################################
 tint_add_target(tint_lang_spirv_writer_fuzz fuzz
-  lang/spirv/writer/writer_ir_fuzz.cc
+  lang/spirv/writer/writer_fuzz.cc
 )
 
 tint_target_add_dependencies(tint_lang_spirv_writer_fuzz fuzz
@@ -239,20 +174,17 @@ tint_target_add_dependencies(tint_lang_spirv_writer_fuzz fuzz
   tint_lang_core_constant
   tint_lang_core_ir
   tint_lang_core_type
+  tint_utils
   tint_utils_bytes
   tint_utils_containers
   tint_utils_diagnostic
   tint_utils_ice
-  tint_utils_id
   tint_utils_macros
   tint_utils_math
   tint_utils_memory
-  tint_utils_reflection
-  tint_utils_result
   tint_utils_rtti
   tint_utils_symbol
   tint_utils_text
-  tint_utils_traits
 )
 
 tint_target_add_external_dependencies(tint_lang_spirv_writer_fuzz fuzz

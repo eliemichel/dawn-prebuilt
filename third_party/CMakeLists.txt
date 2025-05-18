@@ -28,12 +28,15 @@
 # Don't build testing in third_party dependencies
 set(BUILD_TESTING OFF)
 
+# Needed by some dependencies in third_party
+set(ABSL_ROOT_DIR ${DAWN_ABSEIL_DIR})
+
 # fetch_dawn_dependencies.py is an alternative to using depot_tools
 # It is particularly interesting when building dawn as a subdirectory in
 # a parent project that does not want to use depot_tools.
 if (DAWN_FETCH_DEPENDENCIES)
     set(EXTRA_FETCH_ARGS)
-    if (NOT TARGET gmock AND ${TINT_BUILD_TESTS})
+    if (NOT TARGET gmock AND (DAWN_BUILD_TESTS OR TINT_BUILD_TESTS))
         list(APPEND EXTRA_FETCH_ARGS --use-test-deps)
     endif()
 
@@ -70,10 +73,26 @@ if (NOT TARGET absl::strings)
     add_subdirectory(${DAWN_ABSEIL_DIR} "${CMAKE_CURRENT_BINARY_DIR}/abseil")
 endif()
 
+if ((DAWN_BUILD_TESTS OR TINT_BUILD_TESTS) AND NOT TARGET gmock)
+    set(gtest_force_shared_crt ON CACHE BOOL "Controls whether a shared run-time library should be used even when Google Test is built as static library" FORCE)
+    if (EMSCRIPTEN)
+        # For Emscripten builds, we need to disable pthreads.
+        set(gtest_disable_pthreads ON)
+    endif()
+
+    # We don't use exceptions, so we don't need gtest to handle them. Emscripten
+    # builds in particular, with JSPI enabled, crash without this enabled.
+    # There doesn't seem to be an option to tell the gtest build files to do
+    # this, so we set it globally. (This seems to be the intended usage.)
+    add_definitions(-DGTEST_HAS_EXCEPTIONS=0)
+
+    add_subdirectory(${DAWN_GOOGLETEST_DIR} "${CMAKE_CURRENT_BINARY_DIR}/googletest" EXCLUDE_FROM_ALL)
+endif()
+
 ################################################################################
 # End of Emscripten enabled third party directories
 ################################################################################
-if (${DAWN_ENABLE_EMSCRIPTEN})
+if (EMSCRIPTEN)
     return()
 endif()
 
@@ -159,11 +178,6 @@ endif()
 if (TINT_BUILD_BENCHMARKS OR DAWN_BUILD_BENCHMARKS)
     set(BENCHMARK_ENABLE_TESTING FALSE CACHE BOOL FALSE FORCE)
     add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/google_benchmark/src EXCLUDE_FROM_ALL)
-endif()
-
-if (TINT_BUILD_TESTS AND NOT TARGET gmock)
-    set(gtest_force_shared_crt ON CACHE BOOL "Controls whether a shared run-time library should be used even when Google Test is built as static library" FORCE)
-    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/googletest EXCLUDE_FROM_ALL)
 endif()
 
 # Populates 'targets' with list of all targets under 'dir'

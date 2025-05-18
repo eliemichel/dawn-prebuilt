@@ -79,11 +79,13 @@ struct State {
         // ShaderIO transforms these input builtins such that they are loaded a single time and then
         // converted to u32. We add the offset to the result of the conversion.
         auto* load = GetSingularUse<core::ir::Load>(var);
-        auto* index = GetSingularUse<core::ir::Convert>(load);
+        auto* index = load->Result()->Type()->Is<core::type::U32>()
+                          ? load
+                          : GetSingularUse<core::ir::Convert>(load);
 
         // Replace users of the original load with the result of the offset calculation.
         auto* offset_index = b.InstructionResult<u32>();
-        index->Result(0)->ReplaceAllUsesWith(offset_index);
+        index->Result()->ReplaceAllUsesWith(offset_index);
 
         // Load the offset from the push constant structure and add it to the index.
         b.InsertAfter(index, [&] {
@@ -99,7 +101,7 @@ struct State {
     /// @returns the use
     template <typename T>
     core::ir::Instruction* GetSingularUse(core::ir::Instruction* inst) {
-        auto& usages = inst->Result(0)->UsagesUnsorted();
+        auto& usages = inst->Result()->UsagesUnsorted();
         TINT_ASSERT(usages.Count() == 1);
         auto* index = usages.begin()->instruction->As<T>();
         TINT_ASSERT(index);
@@ -110,7 +112,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> OffsetFirstIndex(core::ir::Module& ir, const OffsetFirstIndexConfig& config) {
-    auto result = ValidateAndDumpIfNeeded(ir, "glsl.OffsetFirstIndex transform",
+    auto result = ValidateAndDumpIfNeeded(ir, "glsl.OffsetFirstIndex",
                                           core::ir::Capabilities{
                                               core::ir::Capability::kAllowHandleVarsWithoutBindings,
                                           });

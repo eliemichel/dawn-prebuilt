@@ -30,6 +30,7 @@
 #include <cstring>
 #include <iomanip>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <sstream>
 
@@ -55,14 +56,18 @@ ResultOrError<Ref<ShaderModuleBase>> CreateShaderModule(
     wgslDesc.code = source;
     ShaderModuleDescriptor descriptor;
     descriptor.nextInChain = &wgslDesc;
-    return device->CreateShaderModule(&descriptor, internalExtensions);
+    std::unique_ptr<OwnedCompilationMessages> compilationMessages =
+        std::make_unique<OwnedCompilationMessages>();
+    return device->CreateShaderModule(&descriptor, internalExtensions, &compilationMessages);
 }
 
 ResultOrError<Ref<BufferBase>> CreateBufferFromData(DeviceBase* device,
+                                                    std::string_view label,
                                                     wgpu::BufferUsage usage,
                                                     const void* data,
                                                     uint64_t size) {
     BufferDescriptor descriptor;
+    descriptor.label = label;
     descriptor.size = size;
     descriptor.usage = usage;
     descriptor.mappedAtCreation = true;

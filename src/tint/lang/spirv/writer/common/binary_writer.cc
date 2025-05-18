@@ -30,6 +30,8 @@
 #include <cstring>
 #include <string>
 
+#include "src/tint/utils/memory/bitcast.h"
+
 namespace tint::spirv::writer {
 namespace {
 
@@ -72,16 +74,13 @@ void BinaryWriter::ProcessOp(const Operand& op) {
         return;
     }
     if (auto* f = std::get_if<float>(&op)) {
-        // Allocate space for the float
-        out_.push_back(0);
-        uint8_t* ptr = reinterpret_cast<uint8_t*>(out_.data() + (out_.size() - 1));
-        memcpy(ptr, f, 4);
+        out_.push_back(tint::Bitcast<uint32_t>(*f));
         return;
     }
     if (auto* str = std::get_if<std::string>(&op)) {
         auto idx = out_.size();
         out_.resize(out_.size() + OperandLength(op), 0);
-        memcpy(out_.data() + idx, str->c_str(), str->size() + 1);
+        memcpy(&out_[idx], str->c_str(), str->size() + 1);
         return;
     }
 }

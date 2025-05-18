@@ -135,6 +135,18 @@ D3D12_RESOURCE_DIMENSION D3D12TextureDimension(wgpu::TextureDimension dimension)
     }
 }
 
+ResourceHeapKind GetResourceHeapKind(D3D12_RESOURCE_FLAGS flags, uint32_t resourceHeapTier) {
+    if (resourceHeapTier >= 2u) {
+        return ResourceHeapKind::Default_AllBuffersAndTextures;
+    }
+
+    if ((flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) ||
+        (flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)) {
+        return ResourceHeapKind::Default_OnlyRenderableOrDepthTextures;
+    }
+    return ResourceHeapKind::Default_OnlyNonRenderableOrDepthTextures;
+}
+
 }  // namespace
 
 // static
@@ -188,7 +200,8 @@ MaybeError Texture::InitializeAsExternalTexture(ComPtr<IUnknown> d3dTexture,
     // When creating the ResourceHeapAllocation, the resource heap is set to nullptr because the
     // texture is owned externally. The texture's owning entity must remain responsible for
     // memory management.
-    mResourceAllocation = {info, 0, std::move(d3d12Texture), nullptr};
+    mResourceAllocation = {info, 0, std::move(d3d12Texture), nullptr,
+                           ResourceHeapKind::InvalidEnum};
     mKeyedMutex = std::move(keyedMutex);
     mWaitFences = std::move(waitFences);
     mSwapChainTexture = isSwapChainTexture;
@@ -252,10 +265,13 @@ MaybeError Texture::InitializeAsInternalTexture() {
             Toggle::DisableSubAllocationFor2DTextureWithCopyDstOrRenderAttachment)) &&
         GetDimension() == wgpu::TextureDimension::e2D &&
         (GetInternalUsage() & (wgpu::TextureUsage::CopyDst | wgpu::TextureUsage::RenderAttachment));
-    DAWN_TRY_ASSIGN(mResourceAllocation,
-                    device->AllocateMemory(D3D12_HEAP_TYPE_DEFAULT, resourceDescriptor,
-                                           D3D12_RESOURCE_STATE_COMMON, bytesPerBlock,
-                                           forceAllocateAsCommittedResource));
+
+    ResourceHeapKind resourceHeapKind =
+        GetResourceHeapKind(mD3D12ResourceFlags, ToBackend(GetDevice())->GetResourceHeapTier());
+    DAWN_TRY_ASSIGN(
+        mResourceAllocation,
+        device->AllocateMemory(resourceHeapKind, resourceDescriptor, D3D12_RESOURCE_STATE_COMMON,
+                               bytesPerBlock, forceAllocateAsCommittedResource));
 
     SetLabelImpl();
 
@@ -287,7 +303,8 @@ MaybeError Texture::InitializeAsSwapChainTexture(ComPtr<ID3D12Resource> d3d12Tex
     // When creating the ResourceHeapAllocation, the resource heap is set to nullptr because the
     // texture is owned externally. The texture's owning entity must remain responsible for
     // memory management.
-    mResourceAllocation = {info, 0, std::move(d3d12Texture), nullptr};
+    mResourceAllocation = {info, 0, std::move(d3d12Texture), nullptr,
+                           ResourceHeapKind::InvalidEnum};
 
     SetLabelHelper("Dawn_SwapChainTexture");
 
@@ -304,32 +321,6 @@ void Texture::DestroyImpl() {
     ToBackend(GetDevice())->DeallocateMemory(mResourceAllocation);
     // Set mSwapChainTexture to false to prevent ever calling ID3D12SharingContract::Present again.
     mSwapChainTexture = false;
-}
-
-ResultOrError<ExecutionSerial> Texture::EndAccess() {
-    DAWN_ASSERT(mD3D12ResourceFlags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS);
-
-    NotifySwapChainPresentToPIX();
-
-    // Synchronize if texture access wasn't synchronized already due to ExecuteCommandLists. If
-    // there were pending commands that used this texture mLastSharedTextureMemoryUsageSerial will
-    // be set, but if it's still not set, generate a signal fence after waiting on wait fences.
-    Queue* queue = ToBackend(GetDevice()->GetQueue());
-    if (mLastSharedTextureMemoryUsageSerial == kBeginningOfGPUTime) {
-        // Even though we aren't recording any commands here, asking for a command context ensures
-        // that the device fence is signaled eventually even if no commands were recorded before
-        // EndAccess. This is a little sub-optimal, but shouldn't occur often in practice.
-        CommandRecordingContext* context =
-            queue->GetPendingCommandContext(ExecutionQueueBase::SubmitMode::Passive);
-        DAWN_TRY(SynchronizeTextureBeforeUse(context));
-        DAWN_ASSERT(mLastSharedTextureMemoryUsageSerial != kBeginningOfGPUTime);
-    }
-    // Make the queue signal the fence in finite time.
-    DAWN_TRY(queue->EnsureCommandsFlushed(mLastSharedTextureMemoryUsageSerial));
-
-    ExecutionSerial ret = mLastSharedTextureMemoryUsageSerial;
-    mLastSharedTextureMemoryUsageSerial = kBeginningOfGPUTime;
-    return ret;
 }
 
 DXGI_FORMAT Texture::GetD3D12Format() const {
@@ -515,7 +506,7 @@ void Texture::TransitionSubresourceRange(std::vector<D3D12_RESOURCE_BARRIER>* ba
                 mD3D12ResourceFlags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) {
                 // Implicit texture state decays can only occur when the texture was implicitly
                 // transitioned to a read-only state. isValidToDecay is needed to differentiate
-                // between resources that were implictly or explicitly transitioned to a
+                // between resources that were implicitly or explicitly transitioned to a
                 // read-only state.
                 state->isValidToDecay = true;
                 state->lastDecaySerial = pendingCommandSerial;
@@ -833,42 +824,41 @@ MaybeError Texture::ClearTexture(CommandRecordingContext* commandContext,
             uint32_t bytesPerRow =
                 Align((largestMipSize.width / blockInfo.width) * blockInfo.byteSize,
                       kTextureBytesPerRowAlignment);
-            uint64_t bufferSize = bytesPerRow * (largestMipSize.height / blockInfo.height) *
+            uint64_t uploadSize = bytesPerRow * (largestMipSize.height / blockInfo.height) *
                                   largestMipSize.depthOrArrayLayers;
-            DynamicUploader* uploader = device->GetDynamicUploader();
-            UploadHandle uploadHandle;
-            DAWN_TRY_ASSIGN(
-                uploadHandle,
-                uploader->Allocate(bufferSize, device->GetQueue()->GetPendingCommandSerial(),
-                                   blockInfo.byteSize));
-            memset(uploadHandle.mappedBuffer, clearColor, bufferSize);
 
-            for (uint32_t level = range.baseMipLevel; level < range.baseMipLevel + range.levelCount;
-                 ++level) {
-                // compute d3d12 texture copy locations for texture and buffer
-                Extent3D copySize = GetMipLevelSingleSubresourcePhysicalSize(level, aspect);
+            DAWN_TRY(device->GetDynamicUploader()->WithUploadReservation(
+                uploadSize, blockInfo.byteSize, [&](UploadReservation reservation) -> MaybeError {
+                    memset(reservation.mappedPointer, clearColor, uploadSize);
 
-                for (uint32_t layer = range.baseArrayLayer;
-                     layer < range.baseArrayLayer + range.layerCount; ++layer) {
-                    if (clearValue == TextureBase::ClearValue::Zero &&
-                        IsSubresourceContentInitialized(
-                            SubresourceRange::SingleMipAndLayer(level, layer, aspect))) {
-                        // Skip lazy clears if already initialized.
-                        continue;
+                    for (uint32_t level = range.baseMipLevel;
+                         level < range.baseMipLevel + range.levelCount; ++level) {
+                        // compute d3d12 texture copy locations for texture and buffer
+                        Extent3D copySize = GetMipLevelSingleSubresourcePhysicalSize(level, aspect);
+
+                        for (uint32_t layer = range.baseArrayLayer;
+                             layer < range.baseArrayLayer + range.layerCount; ++layer) {
+                            if (clearValue == TextureBase::ClearValue::Zero &&
+                                IsSubresourceContentInitialized(
+                                    SubresourceRange::SingleMipAndLayer(level, layer, aspect))) {
+                                // Skip lazy clears if already initialized.
+                                continue;
+                            }
+
+                            TextureCopy textureCopy;
+                            textureCopy.texture = this;
+                            textureCopy.origin = {0, 0, layer};
+                            textureCopy.mipLevel = level;
+                            textureCopy.aspect = aspect;
+                            RecordBufferTextureCopyWithBufferHandle(
+                                BufferTextureCopyDirection::B2T, commandList,
+                                ToBackend(reservation.buffer)->GetD3D12Resource(),
+                                reservation.offsetInBuffer, bytesPerRow, largestMipSize.height,
+                                textureCopy, copySize);
+                        }
                     }
-
-                    TextureCopy textureCopy;
-                    textureCopy.texture = this;
-                    textureCopy.origin = {0, 0, layer};
-                    textureCopy.mipLevel = level;
-                    textureCopy.aspect = aspect;
-                    RecordBufferTextureCopyWithBufferHandle(
-                        BufferTextureCopyDirection::B2T, commandList,
-                        ToBackend(uploadHandle.stagingBuffer)->GetD3D12Resource(),
-                        uploadHandle.startOffset, bytesPerRow, largestMipSize.height, textureCopy,
-                        copySize);
-                }
-            }
+                    return {};
+                }));
         }
     }
     if (clearValue == TextureBase::ClearValue::Zero) {

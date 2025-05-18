@@ -31,6 +31,7 @@
 #include <string>
 #include <utility>
 
+#include "dawn/common/Assert.h"
 #include "dawn/common/BitSetIterator.h"
 #include "dawn/common/Log.h"
 #include "dawn/common/SystemUtils.h"
@@ -129,7 +130,7 @@ constexpr SkippedMessage kSkippedMessages[] = {
     {"SYNC-HAZARD-WRITE-AFTER-READ",
      "Submitted access info (submitted_usage: SYNC_CLEAR_TRANSFER_WRITE, command: vkCmdFillBuffer"},
 
-    // http://crbug.com/dawn/1916
+    // https://issues.chromium.org/issues/41479545
     {"SYNC-HAZARD-WRITE-AFTER-WRITE",
      "Access info (usage: SYNC_COPY_TRANSFER_WRITE, prior_usage: SYNC_COPY_TRANSFER_WRITE, "
      "write_barriers: 0, command: vkCmdCopyBufferToImage"},
@@ -173,6 +174,12 @@ constexpr SkippedMessage kSkippedMessages[] = {
      "vkAllocateMemory(): pAllocateInfo->pNext<VkMemoryDedicatedAllocateInfo>"},
     // crbug.com/324282958
     {"NVIDIA", "vkBindImageMemory: memoryTypeIndex"},
+
+    // https://github.com/KhronosGroup/Vulkan-ValidationLayers/issues/9537
+    {"VUID-vkCmdCopyBufferToImage-pRegions-00173",
+     "Detected overlap between source and dest regions in memory"},
+    {"VUID-vkCmdCopyImageToBuffer-pRegions-00184",
+     "Detected overlap between source and dest regions in memory"},
 };
 
 namespace dawn::native::vulkan {
@@ -240,7 +247,7 @@ void LogCallbackData(LogSeverity severity,
 
 VKAPI_ATTR VkBool32 VKAPI_CALL
 OnDebugUtilsCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-                     VkDebugUtilsMessageTypeFlagsEXT /* messageTypes */,
+                     VkDebugUtilsMessageTypeFlagsEXT messageTypes,
                      const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
                      void* pUserData) {
     if (!ShouldReportDebugMessage(pCallbackData->pMessageIdName, pCallbackData->pMessage)) {
@@ -272,10 +279,12 @@ OnDebugUtilsCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
         }
     }
 
-    // We get to this line if no device was associated with the message. Crash so that the failure
-    // is loud and makes tests fail in Debug.
+    // We get to this line if no device was associated with the message. If the message is a backend
+    // validation error then crash as there should have been a debug label on the object. The
+    // driver can also produce errors even with backend validation disabled so those errors are
+    // just logged.
     LogCallbackData(LogSeverity::Error, pCallbackData);
-    DAWN_ASSERT(false);
+    DAWN_ASSERT(!(messageTypes & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT));
 
     return VK_FALSE;
 }
@@ -602,11 +611,16 @@ std::vector<Ref<PhysicalDeviceBase>> Backend::DiscoverPhysicalDevices(
                 if (instance->ConsumedErrorAndWarnOnce(physicalDevice->Initialize())) {
                     continue;
                 }
+                // This loop can't filter adapters based on SupportsFeatureLevel() since the results
+                // are cached for subsequent calls that might have a different feature level.
                 mPhysicalDevices[icd].push_back(std::move(physicalDevice));
             }
         }
-        physicalDevices.insert(physicalDevices.end(), mPhysicalDevices[icd].begin(),
-                               mPhysicalDevices[icd].end());
+        for (auto& physicalDevice : mPhysicalDevices[icd]) {
+            if (physicalDevice->SupportsFeatureLevel(options->featureLevel, instance)) {
+                physicalDevices.push_back(physicalDevice);
+            }
+        }
     }
     return physicalDevices;
 }

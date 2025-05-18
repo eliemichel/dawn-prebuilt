@@ -50,7 +50,9 @@ D3D12_DESCRIPTOR_RANGE_TYPE WGPUBindingInfoToDescriptorRangeType(const BindingIn
                 case kInternalStorageBufferBinding:
                     return D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
                 case wgpu::BufferBindingType::ReadOnlyStorage:
+                case kInternalReadOnlyStorageBufferBinding:
                     return D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+                case wgpu::BufferBindingType::BindingNotUsed:
                 case wgpu::BufferBindingType::Undefined:
                     DAWN_UNREACHABLE();
             }
@@ -71,6 +73,7 @@ D3D12_DESCRIPTOR_RANGE_TYPE WGPUBindingInfoToDescriptorRangeType(const BindingIn
                     return D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
                 case wgpu::StorageTextureAccess::ReadOnly:
                     return D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+                case wgpu::StorageTextureAccess::BindingNotUsed:
                 case wgpu::StorageTextureAccess::Undefined:
                     DAWN_UNREACHABLE();
             }
@@ -94,6 +97,7 @@ BindGroupLayout::BindGroupLayout(Device* device, const BindGroupLayoutDescriptor
       mShaderRegisters(GetBindingCount()),
       mCbvUavSrvDescriptorCount(0),
       mSamplerDescriptorCount(0),
+      mViewSizeIncrement(0),
       mBindGroupAllocator(MakeFrontendBindGroupAllocator<BindGroup>(4096)) {
     for (BindingIndex bindingIndex{0}; bindingIndex < GetBindingCount(); ++bindingIndex) {
         const BindingInfo& bindingInfo = GetBindingInfo(bindingIndex);
@@ -209,46 +213,58 @@ BindGroupLayout::BindGroupLayout(Device* device, const BindGroupLayoutDescriptor
 
         descriptorRanges.push_back(range);
     }
-
-    mViewAllocator = device->GetViewStagingDescriptorAllocator(GetCbvUavSrvDescriptorCount());
-    mSamplerAllocator = device->GetSamplerStagingDescriptorAllocator(GetSamplerDescriptorCount());
+    if (mCbvUavSrvDescriptorCount > 0) {
+        auto* viewAllocator = device->GetViewStagingDescriptorAllocator(mCbvUavSrvDescriptorCount);
+        mViewSizeIncrement = (*viewAllocator)->GetSizeIncrement();
+    }
 }
 
 ResultOrError<Ref<BindGroup>> BindGroupLayout::AllocateBindGroup(
     Device* device,
     const BindGroupDescriptor* descriptor) {
-    uint32_t viewSizeIncrement = 0;
     CPUDescriptorHeapAllocation viewAllocation;
     if (GetCbvUavSrvDescriptorCount() > 0) {
-        DAWN_ASSERT(mViewAllocator != nullptr);
-        DAWN_TRY((*mViewAllocator).Use([&](auto viewAllocator) -> MaybeError {
+        auto* viewAllocator =
+            device->GetViewStagingDescriptorAllocator(GetCbvUavSrvDescriptorCount());
+        DAWN_ASSERT(viewAllocator != nullptr);
+        DAWN_TRY((*viewAllocator).Use([&](auto viewAllocator) -> MaybeError {
             DAWN_TRY_ASSIGN(viewAllocation, viewAllocator->AllocateCPUDescriptors());
-            viewSizeIncrement = viewAllocator->GetSizeIncrement();
             return {};
         }));
     }
 
-    Ref<BindGroup> bindGroup = AcquireRef<BindGroup>(
-        mBindGroupAllocator->Allocate(device, descriptor, viewSizeIncrement, viewAllocation));
+    Ref<BindGroup> bindGroup =
+        AcquireRef<BindGroup>(mBindGroupAllocator->Allocate(device, descriptor, viewAllocation));
+
+    // The bindgroup must be initialized before getting a sampler heap cache entry because we need
+    // to look at the contents of the bind group to deduplicate the sampler heap allocation.
+    DAWN_TRY(bindGroup->Initialize(descriptor));
 
     if (GetSamplerDescriptorCount() > 0) {
-        DAWN_ASSERT(mSamplerAllocator != nullptr);
         Ref<SamplerHeapCacheEntry> samplerHeapCacheEntry;
-        DAWN_TRY_ASSIGN(samplerHeapCacheEntry, device->GetSamplerHeapCache()->GetOrCreate(
-                                                   bindGroup.Get(), *mSamplerAllocator));
+        DAWN_TRY_ASSIGN(samplerHeapCacheEntry,
+                        device->GetSamplerHeapCache()->GetOrCreate(bindGroup.Get()));
         bindGroup->SetSamplerAllocationEntry(std::move(samplerHeapCacheEntry));
     }
 
     return bindGroup;
 }
 
-void BindGroupLayout::DeallocateBindGroup(BindGroup* bindGroup,
-                                          CPUDescriptorHeapAllocation* viewAllocation) {
-    if (viewAllocation->IsValid()) {
-        (*mViewAllocator)->Deallocate(viewAllocation);
-    }
-
+void BindGroupLayout::DeallocateBindGroup(BindGroup* bindGroup) {
     mBindGroupAllocator->Deallocate(bindGroup);
+}
+
+void BindGroupLayout::DeallocateDescriptor(CPUDescriptorHeapAllocation* viewAllocation) {
+    if (viewAllocation->IsValid()) {
+        Device* device = ToBackend(GetDevice());
+        auto* viewAllocator =
+            device->GetViewStagingDescriptorAllocator(GetCbvUavSrvDescriptorCount());
+        (*viewAllocator)->Deallocate(viewAllocation);
+    }
+}
+
+void BindGroupLayout::ReduceMemoryUsage() {
+    mBindGroupAllocator->DeleteEmptySlabs();
 }
 
 ityp::span<BindingIndex, const uint32_t> BindGroupLayout::GetDescriptorHeapOffsets() const {
@@ -265,6 +281,10 @@ uint32_t BindGroupLayout::GetCbvUavSrvDescriptorCount() const {
 
 uint32_t BindGroupLayout::GetSamplerDescriptorCount() const {
     return mSamplerDescriptorCount;
+}
+
+uint32_t BindGroupLayout::GetViewSizeIncrement() const {
+    return mViewSizeIncrement;
 }
 
 const std::vector<D3D12_DESCRIPTOR_RANGE1>& BindGroupLayout::GetCbvUavSrvDescriptorRanges() const {

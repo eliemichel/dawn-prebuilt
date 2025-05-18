@@ -32,6 +32,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "absl/container/flat_hash_set.h"
@@ -49,7 +50,7 @@
 #include "dawn/native/Toggles.h"
 #include "dawn/native/dawn_platform.h"
 #include "partition_alloc/pointers/raw_ptr.h"
-#include "tint/lang/wgsl/features/language_feature.h"
+#include "tint/lang/wgsl/language_feature.h"
 
 namespace dawn::platform {
 class Platform;
@@ -66,7 +67,7 @@ using BackendsBitset = ityp::bitset<wgpu::BackendType, kEnumCount<wgpu::BackendT
 using BackendsArray = ityp::
     array<wgpu::BackendType, std::unique_ptr<BackendConnection>, kEnumCount<wgpu::BackendType>>;
 
-wgpu::Status APIGetInstanceFeatures(InstanceFeatures* features);
+wgpu::Status APIGetInstanceCapabilities(InstanceCapabilities* capabilities);
 InstanceBase* APICreateInstance(const InstanceDescriptor* descriptor);
 
 // This is called InstanceBase for consistency across the frontend, even if the backends don't
@@ -75,20 +76,15 @@ class InstanceBase final : public ErrorSink, public RefCountedWithExternalCount<
   public:
     static ResultOrError<Ref<InstanceBase>> Create(const InstanceDescriptor* descriptor = nullptr);
 
-    void APIRequestAdapter(const RequestAdapterOptions* options,
-                           WGPURequestAdapterCallback callback,
-                           void* userdata);
-    Future APIRequestAdapterF(const RequestAdapterOptions* options,
-                              const RequestAdapterCallbackInfo& callbackInfo);
-    Future APIRequestAdapter2(const RequestAdapterOptions* options,
-                              const WGPURequestAdapterCallbackInfo2& callbackInfo);
+    Future APIRequestAdapter(const RequestAdapterOptions* options,
+                             const WGPURequestAdapterCallbackInfo& callbackInfo);
 
     // Discovers and returns a vector of adapters.
     // All systems adapters that can be found are returned if no options are passed.
     // Otherwise, returns adapters based on the `options`.
     std::vector<Ref<AdapterBase>> EnumerateAdapters(const RequestAdapterOptions* options = nullptr);
 
-    size_t GetPhysicalDeviceCountForTesting() const;
+    void EmitLog(WGPULoggingType type, const std::string_view message) const;
 
     // Consume an error and log its warning at most once. This is useful for
     // physical device creation errors that happen because the backend is not
@@ -151,10 +147,8 @@ class InstanceBase final : public ErrorSink, public RefCountedWithExternalCount<
     [[nodiscard]] wgpu::WaitStatus APIWaitAny(size_t count,
                                               FutureWaitInfo* futures,
                                               uint64_t timeoutNS);
-    bool APIHasWGSLLanguageFeature(wgpu::WGSLFeatureName feature) const;
-    // Always writes the full list when features is not nullptr.
-    // TODO(https://github.com/webgpu-native/webgpu-headers/issues/252): Add a count argument.
-    size_t APIEnumerateWGSLLanguageFeatures(wgpu::WGSLFeatureName* features) const;
+    bool APIHasWGSLLanguageFeature(wgpu::WGSLLanguageFeatureName feature) const;
+    wgpu::Status APIGetWGSLLanguageFeatures(SupportedWGSLLanguageFeatures* features) const;
 
     void DisconnectDawnPlatform();
 
@@ -182,7 +176,7 @@ class InstanceBase final : public ErrorSink, public RefCountedWithExternalCount<
     // Helper function that create adapter on given physical device handling required adapter
     // toggles descriptor.
     Ref<AdapterBase> CreateAdapter(Ref<PhysicalDeviceBase> physicalDevice,
-                                   FeatureLevel featureLevel,
+                                   wgpu::FeatureLevel featureLevel,
                                    const DawnTogglesDescriptor* requiredAdapterToggles,
                                    wgpu::PowerPreference powerPreference);
 
@@ -199,8 +193,7 @@ class InstanceBase final : public ErrorSink, public RefCountedWithExternalCount<
     bool mBeginCaptureOnStartup = false;
     BackendValidationLevel mBackendValidationLevel = BackendValidationLevel::Disabled;
 
-    wgpu::LoggingCallback mLoggingCallback = nullptr;
-    raw_ptr<void> mLoggingCallbackUserdata = nullptr;
+    WGPULoggingCallbackInfo mLoggingCallbackInfo = {};
 
     std::unique_ptr<dawn::platform::Platform> mDefaultPlatform;
     raw_ptr<dawn::platform::Platform> mPlatform = nullptr;
@@ -211,7 +204,7 @@ class InstanceBase final : public ErrorSink, public RefCountedWithExternalCount<
     TogglesState mToggles;
     TogglesInfo mTogglesInfo;
 
-    absl::flat_hash_set<wgpu::WGSLFeatureName> mWGSLFeatures;
+    absl::flat_hash_set<wgpu::WGSLLanguageFeatureName> mWGSLFeatures;
     absl::flat_hash_set<tint::wgsl::LanguageFeature> mTintLanguageFeatures;
 
 #if defined(DAWN_USE_X11)

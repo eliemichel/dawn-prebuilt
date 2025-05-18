@@ -40,14 +40,11 @@
 
 namespace dawn::kotlin_api {
 
-struct UserData {
-    JNIEnv *env;
-    jobject callback;
-};
-
 jobject toByteBuffer(JNIEnv *env, const void* address, jlong size) {
     if (!address) {
-        return nullptr;
+      //* TODO(b/344805524): custom exception for Dawn.
+      env->ThrowNew(env->FindClass("java/lang/Error"), "Invalid byte buffer.");
+      return nullptr;
     }
     jclass byteBufferClass = env->FindClass("java/nio/ByteBuffer");
 
@@ -126,15 +123,14 @@ jobject toByteBuffer(JNIEnv *env, const void* address, jlong size) {
             {% endfor %}
         );
         //* Allocate the native container
-        auto returnAllocation = std::make_unique<{{ as_cType(_kotlin_return.type.name) }}[]>(size);
+        args.{{ as_varName(_kotlin_return.name) }} = c.AllocArray<{{ as_cType(_kotlin_return.type.name) }}>(size);
         if (env->ExceptionCheck()) {  //* Early out if client (Kotlin) callback threw an exception.
             return nullptr;
         }
         //* Second call completes the native container
         wgpu{{ object.name.CamelCase() }}{{ method.name.CamelCase() }}(handle
             {% for arg in method.arguments -%}
-                {{- ', ' if object or not loop.first -}}
-                {{- 'returnAllocation.get()' if arg == _kotlin_return else "args." + as_varName(arg.name) -}}
+               , {{- "args." + as_varName(arg.name) -}}
             {% endfor %}
         );
         if (env->ExceptionCheck()) {  //* Early out if client (Kotlin) callback threw an exception.

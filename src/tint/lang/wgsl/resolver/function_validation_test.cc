@@ -281,6 +281,19 @@ TEST_F(ResolverFunctionValidationTest, FunctionEndWithoutReturnStatementEmptyBod
     EXPECT_EQ(r()->error(), R"(78:89 error: missing return at end of function)");
 }
 
+TEST_F(ResolverFunctionValidationTest, NonVoidFunctionEndWithDeadCodeAfterReturnStatement_Pass) {
+    // fn func() -> i32 { return 0; _ = 0; _ = 1; }
+
+    Func(Source{{12, 34}}, "func", tint::Empty, ty.i32(),
+         Block(Source{Source::Range{{45, 56}, {78, 90}}}, Vector{
+                                                              Return(0_a),
+                                                              Assign(Phony(), 0_a),
+                                                              Assign(Phony(), 1_a),
+                                                          }));
+
+    EXPECT_TRUE(r()->Resolve()) << r()->error();
+}
+
 TEST_F(ResolverFunctionValidationTest, FunctionTypeMustMatchReturnStatementType_Pass) {
     // fn func { return; }
 
@@ -439,7 +452,8 @@ TEST_F(ResolverFunctionValidationTest, CannotCallFunctionAtModuleScope) {
     GlobalVar("x", Call(Source{{12, 34}}, "F"), core::AddressSpace::kPrivate);
 
     EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(), R"(12:34 error: functions cannot be called at module-scope)");
+    EXPECT_EQ(r()->error(),
+              R"(12:34 error: user-declared functions cannot be called at module-scope)");
 }
 
 TEST_F(ResolverFunctionValidationTest, PipelineStage_MustBeUnique_Fail) {
@@ -1127,8 +1141,8 @@ INSTANTIATE_TEST_SUITE_P(
     ResolverTest,
     ResolverFunctionParameterValidationTest,
     testing::Values(TestParams{core::AddressSpace::kUndefined, Expectation::kInvalid},
-                    TestParams{core::AddressSpace::kIn, Expectation::kAlwaysFail},
-                    TestParams{core::AddressSpace::kOut, Expectation::kAlwaysFail},
+                    TestParams{core::AddressSpace::kIn, Expectation::kInvalid},
+                    TestParams{core::AddressSpace::kOut, Expectation::kInvalid},
                     TestParams{core::AddressSpace::kUniform,
                                Expectation::kPassWithUnrestrictedPointerParameters},
                     TestParams{core::AddressSpace::kWorkgroup,

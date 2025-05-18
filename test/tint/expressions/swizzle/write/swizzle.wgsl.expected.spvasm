@@ -13,8 +13,6 @@
                OpName %S "S"
                OpName %d "d"
                OpName %unused_entry_point "unused_entry_point"
-               OpDecorate %_arr_v3float_uint_3 ArrayStride 16
-               OpMemberDecorate %S 0 Offset 0
        %void = OpTypeVoid
           %3 = OpTypeFunction %void
         %int = OpTypeInt 32 1
@@ -48,7 +46,7 @@
          %15 = OpAccessChain %_ptr_Function_int %a_0 %uint_2
                OpStore %15 %int_2 None
                OpStore %d %25
-         %26 = OpAccessChain %_ptr_Function_v3float %d %uint_0 %int_2
+         %26 = OpAccessChain %_ptr_Function_v3float %d %uint_0 %uint_2
          %28 = OpAccessChain %_ptr_Function_float %26 %uint_1
                OpStore %28 %float_3 None
                OpReturn

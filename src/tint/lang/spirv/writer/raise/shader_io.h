@@ -28,10 +28,9 @@
 #ifndef SRC_TINT_LANG_SPIRV_WRITER_RAISE_SHADER_IO_H_
 #define SRC_TINT_LANG_SPIRV_WRITER_RAISE_SHADER_IO_H_
 
-#include <string>
-
-#include "src/tint/utils/diagnostic/diagnostic.h"
-#include "src/tint/utils/result/result.h"
+#include "src/tint/lang/core/ir/transform/prepare_push_constants.h"
+#include "src/tint/lang/spirv/writer/common/options.h"
+#include "src/tint/utils/result.h"
 
 // Forward declarations.
 namespace tint::core::ir {
@@ -42,12 +41,15 @@ namespace tint::spirv::writer::raise {
 
 /// ShaderIOConfig describes the set of configuration options for the ShaderIO transform.
 struct ShaderIOConfig {
-    /// true if frag_depth builtin outputs should be clamped
-    bool clamp_frag_depth = false;
+    /// push constant layout information
+    const core::ir::transform::PushConstantLayout& push_constant_layout;
+
     /// true if a vertex point size builtin output should be added
     bool emit_vertex_point_size = false;
     /// true if f16 IO types should be replaced with f32 types and converted
     bool polyfill_f16_io = false;
+    /// offsets for clamping frag depth
+    std::optional<Options::RangeOffsets> depth_range_offsets{};
 };
 
 /// ShaderIO is a transform that moves each entry point function's parameters and return value to

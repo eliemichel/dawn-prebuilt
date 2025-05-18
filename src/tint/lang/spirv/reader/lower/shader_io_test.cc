@@ -55,16 +55,14 @@ class SpirvReader_ShaderIOTest : public core::ir::transform::TransformTest {
 };
 
 TEST_F(SpirvReader_ShaderIOTest, NoInputsOrOutputs) {
-    auto* ep = b.Function("foo", ty.void_());
-    ep->SetStage(core::ir::Function::PipelineStage::kCompute);
-    ep->SetWorkgroupSize(1, 1, 1);
+    auto* ep = b.ComputeFunction("foo");
 
     b.Append(ep->Block(), [&] {  //
         b.Return(ep);
     });
 
     auto* src = R"(
-%foo = @compute @workgroup_size(1, 1, 1) func():void {
+%foo = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B1: {
     ret
   }
@@ -127,10 +125,10 @@ TEST_F(SpirvReader_ShaderIOTest, Inputs) {
 
     auto* src = R"(
 $B1: {  # root
-  %front_facing:ptr<__in, bool, read> = var @builtin(front_facing)
-  %position:ptr<__in, vec4<f32>, read> = var @invariant @builtin(position)
-  %color1:ptr<__in, f32, read> = var @location(0)
-  %color2:ptr<__in, f32, read> = var @location(1) @interpolate(linear, sample)
+  %front_facing:ptr<__in, bool, read> = var undef @builtin(front_facing)
+  %position:ptr<__in, vec4<f32>, read> = var undef @invariant @builtin(position)
+  %color1:ptr<__in, f32, read> = var undef @location(0)
+  %color2:ptr<__in, f32, read> = var undef @location(1) @interpolate(linear, sample)
 }
 
 %foo = @fragment func():void {
@@ -238,10 +236,10 @@ TEST_F(SpirvReader_ShaderIOTest, Inputs_UsedByHelper) {
 
     auto* src = R"(
 $B1: {  # root
-  %front_facing:ptr<__in, bool, read> = var @builtin(front_facing)
-  %position:ptr<__in, vec4<f32>, read> = var @invariant @builtin(position)
-  %color1:ptr<__in, f32, read> = var @location(0)
-  %color2:ptr<__in, f32, read> = var @location(1) @interpolate(linear, sample)
+  %front_facing:ptr<__in, bool, read> = var undef @builtin(front_facing)
+  %position:ptr<__in, vec4<f32>, read> = var undef @invariant @builtin(position)
+  %color1:ptr<__in, f32, read> = var undef @location(0)
+  %color2:ptr<__in, f32, read> = var undef @location(1) @interpolate(linear, sample)
 }
 
 %foo = func(%existing_param:f32):void {
@@ -342,8 +340,7 @@ TEST_F(SpirvReader_ShaderIOTest, Inputs_UsedEntryPointAndHelper) {
     });
 
     // Use a different subset of the inputs in the entry point.
-    auto* ep = b.Function("main1", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    ep->SetWorkgroupSize(1, 1, 1);
+    auto* ep = b.ComputeFunction("main1");
     b.Append(ep->Block(), [&] {
         auto* group_value = b.Load(group_id);
         auto* gid_value = b.Load(gid);
@@ -354,9 +351,9 @@ TEST_F(SpirvReader_ShaderIOTest, Inputs_UsedEntryPointAndHelper) {
 
     auto* src = R"(
 $B1: {  # root
-  %gid:ptr<__in, vec3<u32>, read> = var @builtin(global_invocation_id)
-  %lid:ptr<__in, vec3<u32>, read> = var @builtin(local_invocation_id)
-  %group_id:ptr<__in, vec3<u32>, read> = var @builtin(workgroup_id)
+  %gid:ptr<__in, vec3<u32>, read> = var undef @builtin(global_invocation_id)
+  %lid:ptr<__in, vec3<u32>, read> = var undef @builtin(local_invocation_id)
+  %group_id:ptr<__in, vec3<u32>, read> = var undef @builtin(workgroup_id)
 }
 
 %foo = func():void {
@@ -367,7 +364,7 @@ $B1: {  # root
     ret
   }
 }
-%main1 = @compute @workgroup_size(1, 1, 1) func():void {
+%main1 = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B3: {
     %9:vec3<u32> = load %group_id
     %10:vec3<u32> = load %gid
@@ -386,7 +383,7 @@ $B1: {  # root
     ret
   }
 }
-%main1 = @compute @workgroup_size(1, 1, 1) func(%gid_1:vec3<u32> [@global_invocation_id], %lid_1:vec3<u32> [@local_invocation_id], %group_id:vec3<u32> [@workgroup_id]):void {  # %gid_1: 'gid', %lid_1: 'lid'
+%main1 = @compute @workgroup_size(1u, 1u, 1u) func(%gid_1:vec3<u32> [@global_invocation_id], %lid_1:vec3<u32> [@local_invocation_id], %group_id:vec3<u32> [@workgroup_id]):void {  # %gid_1: 'gid', %lid_1: 'lid'
   $B2: {
     %9:vec3<u32> = add %group_id, %gid_1
     %10:void = call %foo, %gid_1, %lid_1
@@ -423,8 +420,7 @@ TEST_F(SpirvReader_ShaderIOTest, Inputs_UsedEntryPointAndHelper_ForwardReference
     mod.root_block->Append(lid);
     mod.root_block->Append(group_id);
 
-    auto* ep = b.Function("main1", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    ep->SetWorkgroupSize(1, 1, 1);
+    auto* ep = b.ComputeFunction("main1");
     auto* foo = b.Function("foo", ty.void_());
 
     // Use a subset of the inputs in the entry point.
@@ -446,12 +442,12 @@ TEST_F(SpirvReader_ShaderIOTest, Inputs_UsedEntryPointAndHelper_ForwardReference
 
     auto* src = R"(
 $B1: {  # root
-  %gid:ptr<__in, vec3<u32>, read> = var @builtin(global_invocation_id)
-  %lid:ptr<__in, vec3<u32>, read> = var @builtin(local_invocation_id)
-  %group_id:ptr<__in, vec3<u32>, read> = var @builtin(workgroup_id)
+  %gid:ptr<__in, vec3<u32>, read> = var undef @builtin(global_invocation_id)
+  %lid:ptr<__in, vec3<u32>, read> = var undef @builtin(local_invocation_id)
+  %group_id:ptr<__in, vec3<u32>, read> = var undef @builtin(workgroup_id)
 }
 
-%main1 = @compute @workgroup_size(1, 1, 1) func():void {
+%main1 = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
     %5:vec3<u32> = load %group_id
     %6:vec3<u32> = load %gid
@@ -472,7 +468,7 @@ $B1: {  # root
     EXPECT_EQ(src, str());
 
     auto* expect = R"(
-%main1 = @compute @workgroup_size(1, 1, 1) func(%gid:vec3<u32> [@global_invocation_id], %lid:vec3<u32> [@local_invocation_id], %group_id:vec3<u32> [@workgroup_id]):void {
+%main1 = @compute @workgroup_size(1u, 1u, 1u) func(%gid:vec3<u32> [@global_invocation_id], %lid:vec3<u32> [@local_invocation_id], %group_id:vec3<u32> [@workgroup_id]):void {
   $B1: {
     %5:vec3<u32> = add %group_id, %gid
     %6:void = call %foo, %gid, %lid
@@ -525,16 +521,14 @@ TEST_F(SpirvReader_ShaderIOTest, Inputs_UsedByMultipleEntryPoints) {
     });
 
     // Call the helper without directly referencing any inputs.
-    auto* ep1 = b.Function("main1", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    ep1->SetWorkgroupSize(1, 1, 1);
+    auto* ep1 = b.ComputeFunction("main1");
     b.Append(ep1->Block(), [&] {
         b.Call(foo);
         b.Return(ep1);
     });
 
     // Reference another input and then call the helper.
-    auto* ep2 = b.Function("main2", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    ep2->SetWorkgroupSize(1, 1, 1);
+    auto* ep2 = b.ComputeFunction("main2");
     b.Append(ep2->Block(), [&] {
         auto* group_value = b.Load(group_id);
         b.Add(ty.vec3<u32>(), group_value, group_value);
@@ -544,9 +538,9 @@ TEST_F(SpirvReader_ShaderIOTest, Inputs_UsedByMultipleEntryPoints) {
 
     auto* src = R"(
 $B1: {  # root
-  %gid:ptr<__in, vec3<u32>, read> = var @builtin(global_invocation_id)
-  %lid:ptr<__in, vec3<u32>, read> = var @builtin(local_invocation_id)
-  %group_id:ptr<__in, vec3<u32>, read> = var @builtin(workgroup_id)
+  %gid:ptr<__in, vec3<u32>, read> = var undef @builtin(global_invocation_id)
+  %lid:ptr<__in, vec3<u32>, read> = var undef @builtin(local_invocation_id)
+  %group_id:ptr<__in, vec3<u32>, read> = var undef @builtin(workgroup_id)
 }
 
 %foo = func():void {
@@ -557,13 +551,13 @@ $B1: {  # root
     ret
   }
 }
-%main1 = @compute @workgroup_size(1, 1, 1) func():void {
+%main1 = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B3: {
     %9:void = call %foo
     ret
   }
 }
-%main2 = @compute @workgroup_size(1, 1, 1) func():void {
+%main2 = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B4: {
     %11:vec3<u32> = load %group_id
     %12:vec3<u32> = add %11, %11
@@ -581,13 +575,13 @@ $B1: {  # root
     ret
   }
 }
-%main1 = @compute @workgroup_size(1, 1, 1) func(%gid_1:vec3<u32> [@global_invocation_id], %lid_1:vec3<u32> [@local_invocation_id]):void {  # %gid_1: 'gid', %lid_1: 'lid'
+%main1 = @compute @workgroup_size(1u, 1u, 1u) func(%gid_1:vec3<u32> [@global_invocation_id], %lid_1:vec3<u32> [@local_invocation_id]):void {  # %gid_1: 'gid', %lid_1: 'lid'
   $B2: {
     %8:void = call %foo, %gid_1, %lid_1
     ret
   }
 }
-%main2 = @compute @workgroup_size(1, 1, 1) func(%gid_2:vec3<u32> [@global_invocation_id], %lid_2:vec3<u32> [@local_invocation_id], %group_id:vec3<u32> [@workgroup_id]):void {  # %gid_2: 'gid', %lid_2: 'lid'
+%main2 = @compute @workgroup_size(1u, 1u, 1u) func(%gid_2:vec3<u32> [@global_invocation_id], %lid_2:vec3<u32> [@local_invocation_id], %group_id:vec3<u32> [@workgroup_id]):void {  # %gid_2: 'gid', %lid_2: 'lid'
   $B3: {
     %13:vec3<u32> = add %group_id, %group_id
     %14:void = call %foo, %gid_2, %lid_2
@@ -610,8 +604,7 @@ TEST_F(SpirvReader_ShaderIOTest, Input_LoadVectorElement) {
     }
     mod.root_block->Append(lid);
 
-    auto* ep = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    ep->SetWorkgroupSize(1, 1, 1);
+    auto* ep = b.ComputeFunction("foo");
     b.Append(ep->Block(), [&] {
         b.LoadVectorElement(lid, 2_u);
         b.Return(ep);
@@ -619,10 +612,10 @@ TEST_F(SpirvReader_ShaderIOTest, Input_LoadVectorElement) {
 
     auto* src = R"(
 $B1: {  # root
-  %lid:ptr<__in, vec3<u32>, read> = var @builtin(local_invocation_id)
+  %lid:ptr<__in, vec3<u32>, read> = var undef @builtin(local_invocation_id)
 }
 
-%foo = @compute @workgroup_size(1, 1, 1) func():void {
+%foo = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
     %3:u32 = load_vector_element %lid, 2u
     ret
@@ -632,7 +625,7 @@ $B1: {  # root
     EXPECT_EQ(src, str());
 
     auto* expect = R"(
-%foo = @compute @workgroup_size(1, 1, 1) func(%lid:vec3<u32> [@local_invocation_id]):void {
+%foo = @compute @workgroup_size(1u, 1u, 1u) func(%lid:vec3<u32> [@local_invocation_id]):void {
   $B1: {
     %3:u32 = access %lid, 2u
     ret
@@ -686,7 +679,7 @@ Colors = struct @align(16) {
 }
 
 $B1: {  # root
-  %colors:ptr<__in, Colors, read> = var
+  %colors:ptr<__in, Colors, read> = var undef
 }
 
 %foo = func():void {
@@ -789,7 +782,7 @@ Colors = struct @align(16) {
 }
 
 $B1: {  # root
-  %colors:ptr<__in, Colors, read> = var @location(1)
+  %colors:ptr<__in, Colors, read> = var undef @location(1)
 }
 
 %foo = func():void {
@@ -886,7 +879,7 @@ Colors = struct @align(16) {
 }
 
 $B1: {  # root
-  %colors:ptr<__in, Colors, read> = var @interpolate(perspective, centroid)
+  %colors:ptr<__in, Colors, read> = var undef @interpolate(perspective, centroid)
 }
 
 %foo = func():void {
@@ -977,7 +970,7 @@ Colors = struct @align(16) {
 }
 
 $B1: {  # root
-  %colors:ptr<__in, Colors, read> = var
+  %colors:ptr<__in, Colors, read> = var undef
 }
 
 %foo = func():void {
@@ -1042,7 +1035,7 @@ TEST_F(SpirvReader_ShaderIOTest, SingleOutput_Builtin) {
 
     auto* src = R"(
 $B1: {  # root
-  %position:ptr<__out, vec4<f32>, read_write> = var @builtin(position)
+  %position:ptr<__out, vec4<f32>, read_write> = var undef @builtin(position)
 }
 
 %foo = @vertex func():void {
@@ -1056,7 +1049,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %position:ptr<private, vec4<f32>, read_write> = var
+  %position:ptr<private, vec4<f32>, read_write> = var undef
 }
 
 %foo_inner = func():void {
@@ -1097,7 +1090,7 @@ TEST_F(SpirvReader_ShaderIOTest, SingleOutput_Builtin_WithInvariant) {
 
     auto* src = R"(
 $B1: {  # root
-  %position:ptr<__out, vec4<f32>, read_write> = var @invariant @builtin(position)
+  %position:ptr<__out, vec4<f32>, read_write> = var undef @invariant @builtin(position)
 }
 
 %foo = @vertex func():void {
@@ -1111,7 +1104,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %position:ptr<private, vec4<f32>, read_write> = var
+  %position:ptr<private, vec4<f32>, read_write> = var undef
 }
 
 %foo_inner = func():void {
@@ -1151,7 +1144,7 @@ TEST_F(SpirvReader_ShaderIOTest, SingleOutput_Location) {
 
     auto* src = R"(
 $B1: {  # root
-  %color:ptr<__out, vec4<f32>, read_write> = var @location(1)
+  %color:ptr<__out, vec4<f32>, read_write> = var undef @location(1)
 }
 
 %foo = @fragment func():void {
@@ -1165,7 +1158,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %color:ptr<private, vec4<f32>, read_write> = var
+  %color:ptr<private, vec4<f32>, read_write> = var undef
 }
 
 %foo_inner = func():void {
@@ -1207,7 +1200,7 @@ TEST_F(SpirvReader_ShaderIOTest, SingleOutput_Location_WithInterpolation) {
 
     auto* src = R"(
 $B1: {  # root
-  %color:ptr<__out, vec4<f32>, read_write> = var @location(1) @interpolate(perspective, centroid)
+  %color:ptr<__out, vec4<f32>, read_write> = var undef @location(1) @interpolate(perspective, centroid)
 }
 
 %foo = @fragment func():void {
@@ -1221,7 +1214,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %color:ptr<private, vec4<f32>, read_write> = var
+  %color:ptr<private, vec4<f32>, read_write> = var undef
 }
 
 %foo_inner = func():void {
@@ -1280,9 +1273,9 @@ TEST_F(SpirvReader_ShaderIOTest, MultipleOutputs) {
 
     auto* src = R"(
 $B1: {  # root
-  %position:ptr<__out, vec4<f32>, read_write> = var @invariant @builtin(position)
-  %color1:ptr<__out, vec4<f32>, read_write> = var @location(1)
-  %color2:ptr<__out, vec4<f32>, read_write> = var @location(1) @interpolate(perspective, centroid)
+  %position:ptr<__out, vec4<f32>, read_write> = var undef @invariant @builtin(position)
+  %color1:ptr<__out, vec4<f32>, read_write> = var undef @location(1)
+  %color2:ptr<__out, vec4<f32>, read_write> = var undef @location(1) @interpolate(perspective, centroid)
 }
 
 %foo = @vertex func():void {
@@ -1304,9 +1297,9 @@ tint_symbol = struct @align(16) {
 }
 
 $B1: {  # root
-  %position:ptr<private, vec4<f32>, read_write> = var
-  %color1:ptr<private, vec4<f32>, read_write> = var
-  %color2:ptr<private, vec4<f32>, read_write> = var
+  %position:ptr<private, vec4<f32>, read_write> = var undef
+  %color1:ptr<private, vec4<f32>, read_write> = var undef
+  %color2:ptr<private, vec4<f32>, read_write> = var undef
 }
 
 %foo_inner = func():void {
@@ -1384,8 +1377,8 @@ Colors = struct @align(16) {
 }
 
 $B1: {  # root
-  %builtins:ptr<__out, Builtins, read_write> = var
-  %colors:ptr<__out, Colors, read_write> = var
+  %builtins:ptr<__out, Builtins, read_write> = var undef
+  %colors:ptr<__out, Colors, read_write> = var undef
 }
 
 %foo = @vertex func():void {
@@ -1419,8 +1412,8 @@ tint_symbol = struct @align(16) {
 }
 
 $B1: {  # root
-  %builtins:ptr<private, Builtins, read_write> = var
-  %colors:ptr<private, Colors, read_write> = var
+  %builtins:ptr<private, Builtins, read_write> = var undef
+  %colors:ptr<private, Colors, read_write> = var undef
 }
 
 %foo_inner = func():void {
@@ -1516,8 +1509,8 @@ Colors = struct @align(16) {
 }
 
 $B1: {  # root
-  %builtins:ptr<__out, Builtins, read_write> = var
-  %colors:ptr<__out, Colors, read_write> = var @location(1)
+  %builtins:ptr<__out, Builtins, read_write> = var undef
+  %colors:ptr<__out, Colors, read_write> = var undef @location(1)
 }
 
 %foo = @vertex func():void {
@@ -1551,8 +1544,8 @@ tint_symbol = struct @align(16) {
 }
 
 $B1: {  # root
-  %builtins:ptr<private, Builtins, read_write> = var
-  %colors:ptr<private, Colors, read_write> = var
+  %builtins:ptr<private, Builtins, read_write> = var undef
+  %colors:ptr<private, Colors, read_write> = var undef
 }
 
 %foo_inner = func():void {
@@ -1641,8 +1634,8 @@ Colors = struct @align(16) {
 }
 
 $B1: {  # root
-  %builtins:ptr<__out, Builtins, read_write> = var
-  %colors:ptr<__out, Colors, read_write> = var @interpolate(perspective, centroid)
+  %builtins:ptr<__out, Builtins, read_write> = var undef
+  %colors:ptr<__out, Colors, read_write> = var undef @interpolate(perspective, centroid)
 }
 
 %foo = @vertex func():void {
@@ -1676,8 +1669,8 @@ tint_symbol = struct @align(16) {
 }
 
 $B1: {  # root
-  %builtins:ptr<private, Builtins, read_write> = var
-  %colors:ptr<private, Colors, read_write> = var
+  %builtins:ptr<private, Builtins, read_write> = var undef
+  %colors:ptr<private, Colors, read_write> = var undef
 }
 
 %foo_inner = func():void {
@@ -1759,9 +1752,9 @@ TEST_F(SpirvReader_ShaderIOTest, Outputs_UsedByMultipleEntryPoints) {
 
     auto* src = R"(
 $B1: {  # root
-  %position:ptr<__out, vec4<f32>, read_write> = var @invariant @builtin(position)
-  %color1:ptr<__out, vec4<f32>, read_write> = var @location(1)
-  %color2:ptr<__out, vec4<f32>, read_write> = var @location(1) @interpolate(perspective, centroid)
+  %position:ptr<__out, vec4<f32>, read_write> = var undef @invariant @builtin(position)
+  %color1:ptr<__out, vec4<f32>, read_write> = var undef @location(1)
+  %color2:ptr<__out, vec4<f32>, read_write> = var undef @location(1) @interpolate(perspective, centroid)
 }
 
 %main1 = @vertex func():void {
@@ -1799,9 +1792,9 @@ tint_symbol_1 = struct @align(16) {
 }
 
 $B1: {  # root
-  %position:ptr<private, vec4<f32>, read_write> = var
-  %color1:ptr<private, vec4<f32>, read_write> = var
-  %color2:ptr<private, vec4<f32>, read_write> = var
+  %position:ptr<private, vec4<f32>, read_write> = var undef
+  %color1:ptr<private, vec4<f32>, read_write> = var undef
+  %color2:ptr<private, vec4<f32>, read_write> = var undef
 }
 
 %main1_inner = func():void {
@@ -1876,7 +1869,7 @@ TEST_F(SpirvReader_ShaderIOTest, Output_LoadAndStore) {
 
     auto* src = R"(
 $B1: {  # root
-  %color:ptr<__out, vec4<f32>, read_write> = var @location(1)
+  %color:ptr<__out, vec4<f32>, read_write> = var undef @location(1)
 }
 
 %foo = @fragment func():void {
@@ -1893,7 +1886,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %color:ptr<private, vec4<f32>, read_write> = var
+  %color:ptr<private, vec4<f32>, read_write> = var undef
 }
 
 %foo_inner = func():void {
@@ -1939,7 +1932,7 @@ TEST_F(SpirvReader_ShaderIOTest, Output_LoadVectorElementAndStoreVectorElement) 
 
     auto* src = R"(
 $B1: {  # root
-  %color:ptr<__out, vec4<f32>, read_write> = var @location(1)
+  %color:ptr<__out, vec4<f32>, read_write> = var undef @location(1)
 }
 
 %foo = @fragment func():void {
@@ -1956,7 +1949,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %color:ptr<private, vec4<f32>, read_write> = var
+  %color:ptr<private, vec4<f32>, read_write> = var undef
 }
 
 %foo_inner = func():void {
@@ -2024,10 +2017,10 @@ TEST_F(SpirvReader_ShaderIOTest, Inputs_And_Outputs) {
 
     auto* src = R"(
 $B1: {  # root
-  %position:ptr<__in, vec4<f32>, read> = var @invariant @builtin(position)
-  %color_in:ptr<__in, vec4<f32>, read> = var @location(0)
-  %color_out_1:ptr<__out, vec4<f32>, read_write> = var @location(1)
-  %color_out_2:ptr<__out, vec4<f32>, read_write> = var @location(2)
+  %position:ptr<__in, vec4<f32>, read> = var undef @invariant @builtin(position)
+  %color_in:ptr<__in, vec4<f32>, read> = var undef @location(0)
+  %color_out_1:ptr<__out, vec4<f32>, read_write> = var undef @location(1)
+  %color_out_2:ptr<__out, vec4<f32>, read_write> = var undef @location(2)
 }
 
 %foo = @fragment func():void {
@@ -2049,8 +2042,8 @@ tint_symbol = struct @align(16) {
 }
 
 $B1: {  # root
-  %color_out_1:ptr<private, vec4<f32>, read_write> = var
-  %color_out_2:ptr<private, vec4<f32>, read_write> = var
+  %color_out_1:ptr<private, vec4<f32>, read_write> = var undef
+  %color_out_2:ptr<private, vec4<f32>, read_write> = var undef
 }
 
 %foo_inner = func(%position:vec4<f32>, %color_in:vec4<f32>):void {
@@ -2104,8 +2097,8 @@ TEST_F(SpirvReader_ShaderIOTest, SampleMask) {
 
     auto* src = R"(
 $B1: {  # root
-  %mask_in:ptr<__in, array<u32, 1>, read> = var @builtin(sample_mask)
-  %mask_out:ptr<__out, array<u32, 1>, read_write> = var @builtin(sample_mask)
+  %mask_in:ptr<__in, array<u32, 1>, read> = var undef @builtin(sample_mask)
+  %mask_out:ptr<__out, array<u32, 1>, read_write> = var undef @builtin(sample_mask)
 }
 
 %foo = @fragment func():void {
@@ -2123,7 +2116,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %mask_out:ptr<private, array<u32, 1>, read_write> = var
+  %mask_out:ptr<private, array<u32, 1>, read_write> = var undef
 }
 
 %foo_inner = func(%mask_in:array<u32, 1>):void {
@@ -2151,5 +2144,266 @@ $B1: {  # root
     EXPECT_EQ(expect, str());
 }
 
+TEST_F(SpirvReader_ShaderIOTest, PointSize) {
+    auto* builtin_str =
+        ty.Struct(mod.symbols.New("Builtins"), Vector{
+                                                   core::type::Manager::StructMemberDesc{
+                                                       mod.symbols.New("position"),
+                                                       ty.vec4<f32>(),
+                                                       BuiltinAttrs(core::BuiltinValue::kPosition),
+                                                   },
+                                                   core::type::Manager::StructMemberDesc{
+                                                       mod.symbols.New("point_size"),
+                                                       ty.f32(),
+                                                       BuiltinAttrs(core::BuiltinValue::kPointSize),
+                                                   },
+                                               });
+    auto* builtins = b.Var("builtins", ty.ptr(core::AddressSpace::kOut, builtin_str));
+    mod.root_block->Append(builtins);
+
+    auto* ep = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kVertex);
+    b.Append(ep->Block(), [&] {  //
+        auto* ptr = ty.ptr(core::AddressSpace::kOut, ty.vec4<f32>());
+        b.Store(b.Access(ptr, builtins, 0_u), b.Splat<vec4<f32>>(1_f));
+        b.Store(b.Access(ty.ptr(core::AddressSpace::kOut, ty.f32()), builtins, 1_u), 1_f);
+        b.Return(ep);
+    });
+
+    auto* src = R"(
+Builtins = struct @align(16) {
+  position:vec4<f32> @offset(0), @builtin(position)
+  point_size:f32 @offset(16), @builtin(__point_size)
+}
+
+$B1: {  # root
+  %builtins:ptr<__out, Builtins, read_write> = var undef
+}
+
+%foo = @vertex func():void {
+  $B2: {
+    %3:ptr<__out, vec4<f32>, read_write> = access %builtins, 0u
+    store %3, vec4<f32>(1.0f)
+    %4:ptr<__out, f32, read_write> = access %builtins, 1u
+    store %4, 1.0f
+    ret
+  }
+}
+)";
+    EXPECT_EQ(src, str());
+
+    auto* expect = R"(
+Builtins = struct @align(16) {
+  position:vec4<f32> @offset(0)
+  point_size:f32 @offset(16)
+}
+
+$B1: {  # root
+  %builtins:ptr<private, Builtins, read_write> = var undef
+}
+
+%foo_inner = func():void {
+  $B2: {
+    %3:ptr<private, vec4<f32>, read_write> = access %builtins, 0u
+    store %3, vec4<f32>(1.0f)
+    %4:ptr<private, f32, read_write> = access %builtins, 1u
+    store %4, 1.0f
+    ret
+  }
+}
+%foo = @vertex func():vec4<f32> [@position] {
+  $B3: {
+    %6:void = call %foo_inner
+    %7:ptr<private, vec4<f32>, read_write> = access %builtins, 0u
+    %8:vec4<f32> = load %7
+    ret %8
+  }
+}
+)";
+
+    Run(ShaderIO);
+
+    EXPECT_EQ(expect, str());
+}
+
+TEST_F(SpirvReader_ShaderIOTest, Outputs_Struct_UnusedOutputs) {
+    auto* builtin_str = ty.Struct(mod.symbols.New("Builtins"),
+                                  Vector{
+                                      core::type::Manager::StructMemberDesc{
+                                          mod.symbols.New("position"),
+                                          ty.vec4<f32>(),
+                                          BuiltinAttrs(core::BuiltinValue::kPosition),
+                                      },
+                                      core::type::Manager::StructMemberDesc{
+                                          mod.symbols.New("clip_distance"),
+                                          ty.array<f32, 3>(),
+                                          BuiltinAttrs(core::BuiltinValue::kClipDistances),
+                                      },
+                                      core::type::Manager::StructMemberDesc{
+                                          mod.symbols.New("point_size"),
+                                          ty.f32(),
+                                          BuiltinAttrs(core::BuiltinValue::kPointSize),
+                                      },
+                                      core::type::Manager::StructMemberDesc{
+                                          mod.symbols.New("cull_distance"),
+                                          ty.array<f32, 3>(),
+                                          BuiltinAttrs(core::BuiltinValue::kCullDistance),
+                                      },
+                                  });
+    auto* builtins = b.Var("builtins", ty.ptr(core::AddressSpace::kOut, builtin_str));
+    mod.root_block->Append(builtins);
+
+    auto* ep = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kVertex);
+    b.Append(ep->Block(), [&] {  //
+        auto* ptr = ty.ptr(core::AddressSpace::kOut, ty.vec4<f32>());
+        b.Store(b.Access(ptr, builtins, 0_u), b.Splat<vec4<f32>>(1_f));
+        b.Return(ep);
+    });
+
+    auto* src = R"(
+Builtins = struct @align(16) {
+  position:vec4<f32> @offset(0), @builtin(position)
+  clip_distance:array<f32, 3> @offset(16), @builtin(clip_distances)
+  point_size:f32 @offset(28), @builtin(__point_size)
+  cull_distance:array<f32, 3> @offset(32), @builtin(__cull_distance)
+}
+
+$B1: {  # root
+  %builtins:ptr<__out, Builtins, read_write> = var undef
+}
+
+%foo = @vertex func():void {
+  $B2: {
+    %3:ptr<__out, vec4<f32>, read_write> = access %builtins, 0u
+    store %3, vec4<f32>(1.0f)
+    ret
+  }
+}
+)";
+    EXPECT_EQ(src, str());
+
+    auto* expect = R"(
+Builtins = struct @align(16) {
+  position:vec4<f32> @offset(0)
+  clip_distance:array<f32, 3> @offset(16)
+  point_size:f32 @offset(28)
+  cull_distance:array<f32, 3> @offset(32)
+}
+
+$B1: {  # root
+  %builtins:ptr<private, Builtins, read_write> = var undef
+}
+
+%foo_inner = func():void {
+  $B2: {
+    %3:ptr<private, vec4<f32>, read_write> = access %builtins, 0u
+    store %3, vec4<f32>(1.0f)
+    ret
+  }
+}
+%foo = @vertex func():vec4<f32> [@position] {
+  $B3: {
+    %5:void = call %foo_inner
+    %6:ptr<private, vec4<f32>, read_write> = access %builtins, 0u
+    %7:vec4<f32> = load %6
+    ret %7
+  }
+}
+)";
+
+    Run(ShaderIO);
+
+    EXPECT_EQ(expect, str());
+}
+
+TEST_F(SpirvReader_ShaderIOTest, Outputs_Struct_MultipledUsed) {
+    auto* builtin_str = ty.Struct(mod.symbols.New("Builtins"),
+                                  Vector{
+                                      core::type::Manager::StructMemberDesc{
+                                          mod.symbols.New("position"),
+                                          ty.vec4<f32>(),
+                                          BuiltinAttrs(core::BuiltinValue::kPosition),
+                                      },
+                                      core::type::Manager::StructMemberDesc{
+                                          mod.symbols.New("clip_distance"),
+                                          ty.array<f32, 3>(),
+                                          BuiltinAttrs(core::BuiltinValue::kClipDistances),
+                                      },
+                                  });
+    auto* builtins = b.Var("builtins", ty.ptr(core::AddressSpace::kOut, builtin_str));
+    mod.root_block->Append(builtins);
+
+    auto* ep = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kVertex);
+    b.Append(ep->Block(), [&] {  //
+        auto* ptr1 = ty.ptr(core::AddressSpace::kOut, ty.vec4<f32>());
+        b.Store(b.Access(ptr1, builtins, 0_u), b.Splat<vec4<f32>>(1_f));
+
+        auto* ptr2 = ty.ptr(core::AddressSpace::kOut, ty.array<f32, 3>());
+        b.Store(b.Access(ptr2, builtins, 1_u), b.Splat<array<f32, 3>>(1_f));
+        b.Return(ep);
+    });
+
+    auto* src = R"(
+Builtins = struct @align(16) {
+  position:vec4<f32> @offset(0), @builtin(position)
+  clip_distance:array<f32, 3> @offset(16), @builtin(clip_distances)
+}
+
+$B1: {  # root
+  %builtins:ptr<__out, Builtins, read_write> = var undef
+}
+
+%foo = @vertex func():void {
+  $B2: {
+    %3:ptr<__out, vec4<f32>, read_write> = access %builtins, 0u
+    store %3, vec4<f32>(1.0f)
+    %4:ptr<__out, array<f32, 3>, read_write> = access %builtins, 1u
+    store %4, array<f32, 3>(1.0f)
+    ret
+  }
+}
+)";
+    EXPECT_EQ(src, str());
+
+    auto* expect = R"(
+Builtins = struct @align(16) {
+  position:vec4<f32> @offset(0)
+  clip_distance:array<f32, 3> @offset(16)
+}
+
+tint_symbol = struct @align(16) {
+  position:vec4<f32> @offset(0), @builtin(position)
+  clip_distance:array<f32, 3> @offset(16), @builtin(clip_distances)
+}
+
+$B1: {  # root
+  %builtins:ptr<private, Builtins, read_write> = var undef
+}
+
+%foo_inner = func():void {
+  $B2: {
+    %3:ptr<private, vec4<f32>, read_write> = access %builtins, 0u
+    store %3, vec4<f32>(1.0f)
+    %4:ptr<private, array<f32, 3>, read_write> = access %builtins, 1u
+    store %4, array<f32, 3>(1.0f)
+    ret
+  }
+}
+%foo = @vertex func():tint_symbol {
+  $B3: {
+    %6:void = call %foo_inner
+    %7:ptr<private, vec4<f32>, read_write> = access %builtins, 0u
+    %8:vec4<f32> = load %7
+    %9:ptr<private, array<f32, 3>, read_write> = access %builtins, 1u
+    %10:array<f32, 3> = load %9
+    %11:tint_symbol = construct %8, %10
+    ret %11
+  }
+}
+)";
+
+    Run(ShaderIO);
+
+    EXPECT_EQ(expect, str());
+}
 }  // namespace
 }  // namespace tint::spirv::reader::lower

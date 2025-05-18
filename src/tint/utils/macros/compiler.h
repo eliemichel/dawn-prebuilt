@@ -51,7 +51,9 @@
 #define TINT_DISABLE_WARNING_RESERVED_MACRO_IDENTIFIER   /* currently no-op */
 #define TINT_DISABLE_WARNING_SHADOW_FIELD_IN_CONSTRUCTOR /* currently no-op */
 #define TINT_DISABLE_WARNING_SIGN_CONVERSION             /* currently no-op */
+#define TINT_DISABLE_WARNING_UNDEFINED_REINTERPRET_CAST  /* currently no-op */
 #define TINT_DISABLE_WARNING_UNREACHABLE_CODE __pragma(warning(disable : 4702))
+#define TINT_DISABLE_WARNING_UNSAFE_BUFFER_USAGE /* currently no-op */
 #define TINT_DISABLE_WARNING_UNUSED_PARAMETER __pragma(warning(disable : 4100))
 #define TINT_DISABLE_WARNING_UNUSED_VALUE    /* currently no-op */
 #define TINT_DISABLE_WARNING_WEAK_VTABLES    /* currently no-op */
@@ -71,15 +73,15 @@
 #define TINT_END_DISABLE_WARNING(name)       \
     __pragma(warning(pop))                   \
     TINT_REQUIRE_SEMICOLON
+
+#define TINT_BEGIN_DISABLE_PROTOBUF_WARNINGS()      \
+    __pragma(warning(push))                         \
+    TINT_DISABLE_WARNING_UNUSED_PARAMETER           \
+    TINT_REQUIRE_SEMICOLON
+#define TINT_END_DISABLE_PROTOBUF_WARNINGS() \
+    __pragma(warning(pop))                   \
+    TINT_REQUIRE_SEMICOLON
 // clang-format on
-
-#define TINT_BEGIN_DISABLE_PROTOBUF_WARNINGS() \
-    __pragma(warning(push)) TINT_DISABLE_WARNING_UNUSED_PARAMETER TINT_REQUIRE_SEMICOLON
-#define TINT_END_DISABLE_PROTOBUF_WARNINGS() __pragma(warning(pop)) TINT_REQUIRE_SEMICOLON
-
-#if defined(__SANITIZE_ADDRESS__)
-#define TINT_ASAN_ENABLED
-#endif
 
 #elif defined(__clang__)
 ////////////////////////////////////////////////////////////////////////////////
@@ -89,6 +91,12 @@
 #define TINT_DISABLE_WARNING_CONSTANT_OVERFLOW        /* currently no-op */
 #define TINT_DISABLE_WARNING_DEPRECATED               /* currently no-op */
 #define TINT_DISABLE_WARNING_DESTRUCTOR_NEVER_RETURNS /* currently no-op */
+#define TINT_DISABLE_WARNING_COVERED_SWITCH_DEFAULT \
+    _Pragma("clang diagnostic ignored \"-Wcovered-switch-default\"")
+#define TINT_DISABLE_WARNING_DEPRECATED_REDUNDANT_CONSTEXPR_STATIC_DEF \
+    _Pragma("clang diagnostic ignored \"-Wdeprecated-redundant-constexpr-static-def\"")
+#define TINT_DISABLE_WARNING_DOUBLE_PROMOTION \
+    _Pragma("clang diagnostic ignored \"-Wdouble-promotion\"")
 #define TINT_DISABLE_WARNING_EXTRA_SEMICOLON \
     _Pragma("clang diagnostic ignored \"-Wextra-semi-stmt\"")
 #define TINT_DISABLE_WARNING_FLOAT_EQUAL _Pragma("clang diagnostic ignored \"-Wfloat-equal\"")
@@ -108,7 +116,13 @@
     _Pragma("clang diagnostic ignored \"-Wshadow-field-in-constructor\"")
 #define TINT_DISABLE_WARNING_SIGN_CONVERSION \
     _Pragma("clang diagnostic ignored \"-Wsign-conversion\"")
+#define TINT_DISABLE_WARNING_THREAD_SAFETY_NEGATIVE \
+    _Pragma("clang diagnostic ignored \"-Wthread-safety-negative\"")
+#define TINT_DISABLE_WARNING_UNDEFINED_REINTERPRET_CAST \
+    _Pragma("clang diagnostic ignored \"-Wundefined-reinterpret-cast\"")
 #define TINT_DISABLE_WARNING_UNREACHABLE_CODE /* currently no-op */
+#define TINT_DISABLE_WARNING_UNSAFE_BUFFER_USAGE \
+    _Pragma("clang diagnostic ignored \"-Wunsafe-buffer-usage\"")
 #define TINT_DISABLE_WARNING_UNUSED_PARAMETER \
     _Pragma("clang diagnostic ignored \"-Wunused-parameter\"")
 #define TINT_DISABLE_WARNING_UNUSED_VALUE _Pragma("clang diagnostic ignored \"-Wunused-value\"")
@@ -117,18 +131,24 @@
     _Pragma("clang diagnostic ignored \"-Wzero-as-null-pointer-constant\"")
 
 // clang-format off
-#define TINT_BEGIN_DISABLE_PROTOBUF_WARNINGS()        \
-    _Pragma("clang diagnostic push")                  \
-    TINT_DISABLE_WARNING_EXTRA_SEMICOLON              \
-    TINT_DISABLE_WARNING_MAYBE_UNINITIALIZED          \
-    TINT_DISABLE_WARNING_MISSING_DESTRUCTOR_OVERRIDE  \
-    TINT_DISABLE_WARNING_RESERVED_IDENTIFIER          \
-    TINT_DISABLE_WARNING_RESERVED_MACRO_IDENTIFIER    \
-    TINT_DISABLE_WARNING_SHADOW_FIELD_IN_CONSTRUCTOR  \
-    TINT_DISABLE_WARNING_SIGN_CONVERSION              \
-    TINT_DISABLE_WARNING_UNUSED_PARAMETER             \
-    TINT_DISABLE_WARNING_WEAK_VTABLES                 \
-    TINT_DISABLE_WARNING_ZERO_AS_NULLPTR              \
+#define TINT_BEGIN_DISABLE_PROTOBUF_WARNINGS()                                 \
+    _Pragma("clang diagnostic push")                                           \
+    TINT_DISABLE_WARNING_COVERED_SWITCH_DEFAULT                                \
+    TINT_DISABLE_WARNING_DEPRECATED_REDUNDANT_CONSTEXPR_STATIC_DEF             \
+    TINT_DISABLE_WARNING_DOUBLE_PROMOTION                                      \
+    TINT_DISABLE_WARNING_EXTRA_SEMICOLON                                       \
+    TINT_DISABLE_WARNING_MAYBE_UNINITIALIZED                                   \
+    TINT_DISABLE_WARNING_MISSING_DESTRUCTOR_OVERRIDE                           \
+    TINT_DISABLE_WARNING_RESERVED_IDENTIFIER                                   \
+    TINT_DISABLE_WARNING_RESERVED_MACRO_IDENTIFIER                             \
+    TINT_DISABLE_WARNING_SHADOW_FIELD_IN_CONSTRUCTOR                           \
+    TINT_DISABLE_WARNING_SIGN_CONVERSION                                       \
+    TINT_DISABLE_WARNING_THREAD_SAFETY_NEGATIVE                                \
+    TINT_DISABLE_WARNING_UNDEFINED_REINTERPRET_CAST                            \
+    TINT_DISABLE_WARNING_UNUSED_PARAMETER                                      \
+    TINT_DISABLE_WARNING_UNSAFE_BUFFER_USAGE                                   \
+    TINT_DISABLE_WARNING_WEAK_VTABLES                                          \
+    TINT_DISABLE_WARNING_ZERO_AS_NULLPTR                                       \
     TINT_REQUIRE_SEMICOLON
 
 #define TINT_END_DISABLE_PROTOBUF_WARNINGS() \
@@ -141,6 +161,7 @@
 #define TINT_BEGIN_DISABLE_ALL_WARNINGS() \
     _Pragma("clang diagnostic push")      \
     _Pragma("clang diagnostic ignored \"-Weverything\"")       \
+    TINT_DISABLE_WARNING_UNSAFE_BUFFER_USAGE \
     TINT_REQUIRE_SEMICOLON
 
 #define TINT_END_DISABLE_ALL_WARNINGS() \
@@ -156,10 +177,6 @@
     _Pragma("clang diagnostic pop")          \
     TINT_REQUIRE_SEMICOLON
 // clang-format on
-
-#if __has_feature(address_sanitizer)
-#define TINT_ASAN_ENABLED
-#endif
 
 #elif defined(__GNUC__)
 ////////////////////////////////////////////////////////////////////////////////
@@ -180,7 +197,9 @@
 #define TINT_DISABLE_WARNING_RESERVED_MACRO_IDENTIFIER   /* currently no-op */
 #define TINT_DISABLE_WARNING_SHADOW_FIELD_IN_CONSTRUCTOR /* currently no-op */
 #define TINT_DISABLE_WARNING_SIGN_CONVERSION             /* currently no-op */
+#define TINT_DISABLE_WARNING_UNDEFINED_REINTERPRET_CAST  /* currently no-op */
 #define TINT_DISABLE_WARNING_UNREACHABLE_CODE            /* currently no-op */
+#define TINT_DISABLE_WARNING_UNSAFE_BUFFER_USAGE         /* currently no-op */
 #define TINT_DISABLE_WARNING_UNUSED_PARAMETER \
     _Pragma("GCC diagnostic ignored \"-Wunused-parameter\"")
 #define TINT_DISABLE_WARNING_UNUSED_VALUE _Pragma("GCC diagnostic ignored \"-Wunused-value\"")
@@ -214,6 +233,7 @@
     TINT_DISABLE_WARNING_EXTRA_SEMICOLON              \
     TINT_DISABLE_WARNING_ZERO_AS_NULLPTR              \
     TINT_DISABLE_WARNING_MISSING_DESTRUCTOR_OVERRIDE  \
+    TINT_DISABLE_WARNING_UNSAFE_BUFFER_USAGE          \
     TINT_REQUIRE_SEMICOLON
 // clang-format on
 
@@ -228,10 +248,6 @@
     _Pragma("GCC diagnostic pop")            \
     TINT_REQUIRE_SEMICOLON
 // clang-format on
-
-#if defined(__SANITIZE_ADDRESS__)
-#define TINT_ASAN_ENABLED
-#endif
 
 #else
 ////////////////////////////////////////////////////////////////////////////////

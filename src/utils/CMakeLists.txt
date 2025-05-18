@@ -27,6 +27,7 @@
 
 set(private_headers
     "compiler.h"
+    "numeric.h"
 )
 
 set(sources
@@ -34,6 +35,8 @@ set(sources
 )
 
 set(conditional_private_depends)
+
+add_subdirectory(chromium_test_compat)
 
 dawn_add_library(
     dawn_shared_utils

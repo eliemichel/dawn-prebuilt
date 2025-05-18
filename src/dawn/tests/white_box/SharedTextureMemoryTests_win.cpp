@@ -32,12 +32,14 @@
 #include <webgpu/webgpu_cpp.h>
 #include <wrl/client.h>
 
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "dawn/native/D3D11Backend.h"
 #include "dawn/native/D3DBackend.h"
+#include "dawn/native/DawnNative.h"
 #include "dawn/tests/white_box/SharedTextureMemoryTests.h"
 
 namespace dawn {
@@ -54,20 +56,36 @@ class Backend : public SharedTextureMemoryTestBackend {
   public:
     template <Mode kMode>
     static Backend* GetInstance() {
-        static Backend b(kMode, false);
+        static Backend b(kMode, /*useKeyedMutex=*/false, /*requiresEndAccessFence=*/true);
         return &b;
     }
 
     template <Mode kMode>
     static Backend* GetKeyedMutexInstance() {
-        static Backend b(kMode, true);
+        static Backend b(kMode, /*useKeyedMutex=*/true, /*requiresEndAccessFence=*/true);
+        return &b;
+    }
+
+    static Backend* GetInstanceWithoutEndAccessFence() {
+        static Backend b(Mode::D3D11Texture2D, /*useKeyedMutex=*/false,
+                         /*requiresEndAccessFence=*/false);
         return &b;
     }
 
     std::string Name() const override {
         switch (mMode) {
             case Mode::D3D11Texture2D: {
-                return mUseKeyedMutex ? "D3D11Texture2D KeyedMutex" : "D3D11Texture2D";
+                std::ostringstream ss;
+                ss << "D3D11Texture2D";
+                if (mUseKeyedMutex) {
+                    ss << " KeyedMutex";
+                }
+
+                if (!mRequiresEndAccessFence) {
+                    ss << " NoEndAccessFence";
+                }
+
+                return ss.str();
             }
             case Mode::DXGISharedHandle: {
                 return mUseKeyedMutex ? "DXGISharedHandle KeyedMutex" : "DXGISharedHandle";
@@ -78,20 +96,43 @@ class Backend : public SharedTextureMemoryTestBackend {
     bool UseSameDevice() const override { return mMode == Mode::D3D11Texture2D; }
     bool SupportsConcurrentRead() const override { return true; }
 
+    void SetUp(const wgpu::Device& device) override {
+        // Without fence support, we can only use keyed mutex.
+        DAWN_TEST_UNSUPPORTED_IF(!mUseKeyedMutex && !HasFenceSupport(device));
+    }
+
     std::vector<wgpu::FeatureName> RequiredFeatures(const wgpu::Adapter& adapter) const override {
+        std::vector<wgpu::FeatureName> features;
+
+        if (adapter.HasFeature(wgpu::FeatureName::SharedFenceDXGISharedHandle)) {
+            features.push_back(wgpu::FeatureName::SharedFenceDXGISharedHandle);
+        }
+
         switch (mMode) {
             case Mode::D3D11Texture2D: {
-                return {wgpu::FeatureName::SharedTextureMemoryD3D11Texture2D,
-                        wgpu::FeatureName::SharedFenceDXGISharedHandle,
-                        wgpu::FeatureName::DawnMultiPlanarFormats};
+                features.push_back(wgpu::FeatureName::SharedTextureMemoryD3D11Texture2D);
+                break;
             }
             case Mode::DXGISharedHandle: {
-                return {wgpu::FeatureName::SharedTextureMemoryDXGISharedHandle,
-                        wgpu::FeatureName::SharedFenceDXGISharedHandle,
-                        wgpu::FeatureName::DawnMultiPlanarFormats};
+                features.push_back(wgpu::FeatureName::SharedTextureMemoryDXGISharedHandle);
+                break;
             }
         }
+
+        features.push_back(wgpu::FeatureName::DawnMultiPlanarFormats);
+
+        return features;
     }
+
+    bool HasFenceSupport(const wgpu::Device& device) const {
+        auto toggles = dawn::native::GetTogglesUsed(device.Get());
+        return std::find_if(toggles.begin(), toggles.end(), [](const char* name) {
+                   return strcmp("d3d11_disable_fence", name) == 0;
+               }) == toggles.end();
+    }
+
+    bool UseKeyedMutex() const { return mUseKeyedMutex; }
+    bool UseSharedHandle() const { return mMode == Mode::DXGISharedHandle; }
 
     ComPtr<ID3D11Device> MakeD3D11Device(const wgpu::Device& device) {
         switch (mMode) {
@@ -124,6 +165,12 @@ class Backend : public SharedTextureMemoryTestBackend {
     // Create one basic shared texture memory. It should support most operations.
     wgpu::SharedTextureMemory CreateSharedTextureMemory(const wgpu::Device& device,
                                                         int layerCount) override {
+        return CreateSharedTextureMemory(device, layerCount, mUseKeyedMutex);
+    }
+
+    wgpu::SharedTextureMemory CreateSharedTextureMemory(const wgpu::Device& device,
+                                                        int layerCount,
+                                                        bool useKeyedMutex) {
         ComPtr<ID3D11Device> d3d11Device = MakeD3D11Device(device);
 
         // Create a DX11 texture with data then wrap it in a shared handle.
@@ -141,7 +188,7 @@ class Backend : public SharedTextureMemoryTestBackend {
         d3dDescriptor.CPUAccessFlags = 0;
         d3dDescriptor.MiscFlags =
             D3D11_RESOURCE_MISC_SHARED_NTHANDLE |
-            (mUseKeyedMutex ? D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX : D3D11_RESOURCE_MISC_SHARED);
+            (useKeyedMutex ? D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX : D3D11_RESOURCE_MISC_SHARED);
 
         ComPtr<ID3D11Texture2D> d3d11Texture;
         HRESULT hr = d3d11Device->CreateTexture2D(&d3dDescriptor, nullptr, &d3d11Texture);
@@ -150,6 +197,7 @@ class Backend : public SharedTextureMemoryTestBackend {
             case Mode::D3D11Texture2D: {
                 native::d3d11::SharedTextureMemoryD3D11Texture2DDescriptor texture2DDesc;
                 texture2DDesc.texture = std::move(d3d11Texture);
+                texture2DDesc.requiresEndAccessFence = mRequiresEndAccessFence;
 
                 wgpu::SharedTextureMemoryDescriptor desc;
                 desc.nextInChain = &texture2DDesc;
@@ -251,6 +299,7 @@ class Backend : public SharedTextureMemoryTestBackend {
                     case Mode::D3D11Texture2D: {
                         native::d3d11::SharedTextureMemoryD3D11Texture2DDescriptor texture2DDesc;
                         texture2DDesc.texture = d3d11Texture;
+                        texture2DDesc.requiresEndAccessFence = mRequiresEndAccessFence;
 
                         wgpu::SharedTextureMemoryDescriptor desc;
                         desc.nextInChain = &texture2DDesc;
@@ -308,16 +357,22 @@ class Backend : public SharedTextureMemoryTestBackend {
     }
 
   private:
-    Backend(Mode mode, bool useKeyedMutex) : mMode(mode), mUseKeyedMutex(useKeyedMutex) {}
+    Backend(Mode mode, bool useKeyedMutex, bool requiresEndAccessFence)
+        : mMode(mode),
+          mUseKeyedMutex(useKeyedMutex),
+          mRequiresEndAccessFence(requiresEndAccessFence) {}
 
     const Mode mMode;
     const bool mUseKeyedMutex;
+    const bool mRequiresEndAccessFence;
 };
 
 // Test that it is an error to import a shared fence without enabling the feature.
 TEST_P(SharedTextureMemoryNoFeatureTests, SharedFenceImportWithoutFeature) {
-    ComPtr<ID3D11Device> d3d11Device =
-        static_cast<Backend*>(GetParam().mBackend)->MakeD3D11Device(device);
+    auto backend = static_cast<Backend*>(GetParam().mBackend);
+    DAWN_TEST_UNSUPPORTED_IF(!backend->HasFenceSupport(device));
+
+    ComPtr<ID3D11Device> d3d11Device = backend->MakeD3D11Device(device);
 
     ComPtr<ID3D11Device5> d3d11Device5;
     HRESULT hr = d3d11Device.As(&d3d11Device5);
@@ -343,8 +398,10 @@ TEST_P(SharedTextureMemoryNoFeatureTests, SharedFenceImportWithoutFeature) {
 
 // Test that a shared handle can be imported, and then exported.
 TEST_P(SharedTextureMemoryTests, SharedFenceSuccessfulImportExport) {
-    ComPtr<ID3D11Device> d3d11Device =
-        static_cast<Backend*>(GetParam().mBackend)->MakeD3D11Device(device);
+    auto backend = static_cast<Backend*>(GetParam().mBackend);
+    DAWN_TEST_UNSUPPORTED_IF(!backend->HasFenceSupport(device));
+
+    ComPtr<ID3D11Device> d3d11Device = backend->MakeD3D11Device(device);
 
     ComPtr<ID3D11Device5> d3d11Device5;
     HRESULT hr = d3d11Device.As(&d3d11Device5);
@@ -414,6 +471,9 @@ TEST_P(SharedTextureMemoryTests, SharedFenceSuccessfulImportExport) {
 
 // Test that it is an error to import a shared fence with a null DXGISharedHandle
 TEST_P(SharedTextureMemoryTests, SharedFenceImportDXGISharedHandleMissing) {
+    auto backend = static_cast<Backend*>(GetParam().mBackend);
+    DAWN_TEST_UNSUPPORTED_IF(!backend->HasFenceSupport(device));
+
     wgpu::SharedFenceDXGISharedHandleDescriptor sharedHandleDesc;
     sharedHandleDesc.handle = nullptr;
 
@@ -427,8 +487,10 @@ TEST_P(SharedTextureMemoryTests, SharedFenceImportDXGISharedHandleMissing) {
 // Test exporting info from a shared fence with no chained struct.
 // It should be valid and the fence type is exported.
 TEST_P(SharedTextureMemoryTests, SharedFenceExportInfoNoChainedStruct) {
-    ComPtr<ID3D11Device> d3d11Device =
-        static_cast<Backend*>(GetParam().mBackend)->MakeD3D11Device(device);
+    auto backend = static_cast<Backend*>(GetParam().mBackend);
+    DAWN_TEST_UNSUPPORTED_IF(!backend->HasFenceSupport(device));
+
+    ComPtr<ID3D11Device> d3d11Device = backend->MakeD3D11Device(device);
 
     ComPtr<ID3D11Device5> d3d11Device5;
     HRESULT hr = d3d11Device.As(&d3d11Device5);
@@ -461,8 +523,10 @@ TEST_P(SharedTextureMemoryTests, SharedFenceExportInfoNoChainedStruct) {
 // Test exporting info from a shared fence with an invalid chained struct.
 // It should not be valid, but the fence type should still be exported.
 TEST_P(SharedTextureMemoryTests, SharedFenceExportInfoInvalidChainedStruct) {
-    ComPtr<ID3D11Device> d3d11Device =
-        static_cast<Backend*>(GetParam().mBackend)->MakeD3D11Device(device);
+    auto backend = static_cast<Backend*>(GetParam().mBackend);
+    DAWN_TEST_UNSUPPORTED_IF(!backend->HasFenceSupport(device));
+
+    ComPtr<ID3D11Device> d3d11Device = backend->MakeD3D11Device(device);
 
     ComPtr<ID3D11Device5> d3d11Device5;
     HRESULT hr = d3d11Device.As(&d3d11Device5);
@@ -492,33 +556,60 @@ TEST_P(SharedTextureMemoryTests, SharedFenceExportInfoInvalidChainedStruct) {
     ASSERT_DEVICE_ERROR(fence.ExportInfo(&exportInfo));
 }
 
+using SharedTextureMemoryWithFenceDisabledTests = SharedTextureMemoryTests;
+
+// Test that when fences are disabled, if a shared handle is not created with a keyed mutex, it's an
+// error.
+TEST_P(SharedTextureMemoryWithFenceDisabledTests, ErrorSharedHandleWithoutKeyedMutex) {
+    auto backend = static_cast<Backend*>(GetParam().mBackend);
+    DAWN_TEST_UNSUPPORTED_IF(backend->HasFenceSupport(device));
+    DAWN_TEST_UNSUPPORTED_IF(!backend->UseSharedHandle());
+
+    wgpu::SharedTextureMemory memory;
+
+    ASSERT_DEVICE_ERROR(memory = backend->CreateSharedTextureMemory(device, GetParam().mLayerCount,
+                                                                    /*useKeyedMutex=*/false));
+}
+
 DAWN_INSTANTIATE_PREFIXED_TEST_P(D3D,
                                  SharedTextureMemoryNoFeatureTests,
-                                 {D3D11Backend(), D3D12Backend()},
+                                 {D3D11Backend(), D3D11Backend({"d3d11_disable_fence"}),
+                                  D3D12Backend()},
                                  {Backend::GetInstance<Mode::DXGISharedHandle>(),
                                   Backend::GetKeyedMutexInstance<Mode::DXGISharedHandle>()},
                                  {1});
 
 DAWN_INSTANTIATE_PREFIXED_TEST_P(D3D,
                                  SharedTextureMemoryTests,
-                                 {D3D11Backend(), D3D12Backend()},
+                                 {D3D11Backend(), D3D11Backend({"d3d11_disable_fence"}),
+                                  D3D12Backend()},
                                  {Backend::GetInstance<Mode::DXGISharedHandle>(),
                                   Backend::GetKeyedMutexInstance<Mode::DXGISharedHandle>()},
                                  {1});
 
 DAWN_INSTANTIATE_PREFIXED_TEST_P(D3D11,
                                  SharedTextureMemoryNoFeatureTests,
-                                 {D3D11Backend()},
+                                 {D3D11Backend(), D3D11Backend({"d3d11_disable_fence"})},
                                  {Backend::GetInstance<Mode::D3D11Texture2D>(),
-                                  Backend::GetKeyedMutexInstance<Mode::D3D11Texture2D>()},
+                                  Backend::GetKeyedMutexInstance<Mode::D3D11Texture2D>(),
+                                  Backend::GetInstanceWithoutEndAccessFence()},
                                  {1, 2});
 
 DAWN_INSTANTIATE_PREFIXED_TEST_P(D3D11,
                                  SharedTextureMemoryTests,
-                                 {D3D11Backend()},
+                                 {D3D11Backend(), D3D11Backend({"d3d11_disable_fence"})},
                                  {Backend::GetInstance<Mode::D3D11Texture2D>(),
-                                  Backend::GetKeyedMutexInstance<Mode::D3D11Texture2D>()},
+                                  Backend::GetKeyedMutexInstance<Mode::D3D11Texture2D>(),
+                                  Backend::GetInstanceWithoutEndAccessFence()},
                                  {1, 2});
+
+DAWN_INSTANTIATE_PREFIXED_TEST_P(D3D11,
+                                 SharedTextureMemoryWithFenceDisabledTests,
+                                 {D3D11Backend({"d3d11_disable_fence"})},
+                                 {Backend::GetKeyedMutexInstance<Mode::DXGISharedHandle>()},
+                                 {1});
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(SharedTextureMemoryWithFenceDisabledTests);
 
 }  // anonymous namespace
 }  // namespace dawn

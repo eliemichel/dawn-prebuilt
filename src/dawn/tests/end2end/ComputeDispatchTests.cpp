@@ -176,7 +176,7 @@ class ComputeDispatchTests : public DawnTest {
         std::vector<uint32_t> expected;
 
         uint32_t maxComputeWorkgroupsPerDimension =
-            GetSupportedLimits().limits.maxComputeWorkgroupsPerDimension;
+            GetSupportedLimits().maxComputeWorkgroupsPerDimension;
         if (indirectBufferData[indirectStart] == 0 || indirectBufferData[indirectStart + 1] == 0 ||
             indirectBufferData[indirectStart + 2] == 0 ||
             indirectBufferData[indirectStart] > maxComputeWorkgroupsPerDimension ||
@@ -269,9 +269,7 @@ TEST_P(ComputeDispatchTests, MaxWorkgroups) {
     // TODO(crbug.com/dawn/1196): Fails on Chromium's Quadro P400 bots
     DAWN_SUPPRESS_TEST_IF(IsD3D12() && IsNvidia());
 #endif
-    // TODO(crbug.com/dawn/1165): Fails with WARP
-    DAWN_SUPPRESS_TEST_IF(IsWARP());
-    uint32_t max = GetSupportedLimits().limits.maxComputeWorkgroupsPerDimension;
+    uint32_t max = GetSupportedLimits().maxComputeWorkgroupsPerDimension;
 
     // Test that the maximum works in each dimension.
     // Note: Testing (max, max, max) is very slow.
@@ -284,10 +282,7 @@ TEST_P(ComputeDispatchTests, MaxWorkgroups) {
 TEST_P(ComputeDispatchTests, ExceedsMaxWorkgroupsNoop) {
     DAWN_TEST_UNSUPPORTED_IF(HasToggleEnabled("skip_validation"));
 
-    // TODO(crbug.com/dawn/839): Investigate why this test fails with WARP.
-    DAWN_SUPPRESS_TEST_IF(IsWARP());
-
-    uint32_t max = GetSupportedLimits().limits.maxComputeWorkgroupsPerDimension;
+    uint32_t max = GetSupportedLimits().maxComputeWorkgroupsPerDimension;
 
     // All dimensions are above the max
     IndirectTest({max + 1, max + 1, max + 1}, 0);
@@ -307,12 +302,10 @@ TEST_P(ComputeDispatchTests, ExceedsMaxWorkgroupsNoop) {
 
 // Test indirect dispatches exceeding the max limit with an offset are noop-ed.
 TEST_P(ComputeDispatchTests, ExceedsMaxWorkgroupsWithOffsetNoop) {
+    DAWN_SUPPRESS_TEST_IF(IsWARP());
     DAWN_TEST_UNSUPPORTED_IF(HasToggleEnabled("skip_validation"));
 
-    // TODO(crbug.com/dawn/839): Investigate why this test fails with WARP.
-    DAWN_SUPPRESS_TEST_IF(IsWARP());
-
-    uint32_t max = GetSupportedLimits().limits.maxComputeWorkgroupsPerDimension;
+    uint32_t max = GetSupportedLimits().maxComputeWorkgroupsPerDimension;
 
     IndirectTest({1, 2, 3, max + 1, 4, 5}, 1 * sizeof(uint32_t));
     IndirectTest({1, 2, 3, max + 1, 4, 5}, 2 * sizeof(uint32_t));
@@ -490,7 +483,7 @@ class ComputeMultipleDispatchesTests : public DawnTestWithParams<Params> {
         queue.Submit(1, &commands);
 
         uint32_t maxComputeWorkgroupsPerDimension =
-            GetSupportedLimits().limits.maxComputeWorkgroupsPerDimension;
+            GetSupportedLimits().maxComputeWorkgroupsPerDimension;
 
         std::vector<uint32_t> expected(4 * indirectOffsets.size(), 0);
         for (size_t i = 0; i < indirectOffsets.size(); i++) {
@@ -531,6 +524,7 @@ TEST_P(ComputeMultipleDispatchesTests, IndirectOffset) {
     // TODO(crbug.com/dawn/1196): Fails on Chromium's Quadro P400 bots
     DAWN_SUPPRESS_TEST_IF(IsD3D12() && IsNvidia());
 #endif
+    DAWN_SUPPRESS_TEST_IF(IsWARP());
 
     // Control case: One DispatchWorkgroupsIndirect call
     IndirectTest({0, 0, 0, 2, 3, 4}, {3 * sizeof(uint32_t)});
@@ -560,16 +554,14 @@ TEST_P(ComputeMultipleDispatchesTests, IndirectOffset) {
 // Test indirect dispatches exceeding the max limit with an offset are noop-ed.
 TEST_P(ComputeMultipleDispatchesTests, ExceedsMaxWorkgroupsWithOffsetNoop) {
     DAWN_TEST_UNSUPPORTED_IF(HasToggleEnabled("skip_validation"));
+    DAWN_SUPPRESS_TEST_IF(IsWARP());
 
 #if DAWN_PLATFORM_IS(32_BIT)
     // TODO(crbug.com/dawn/1196): Fails on Chromium's Quadro P400 bots
     DAWN_SUPPRESS_TEST_IF(IsD3D12() && IsNvidia());
 #endif
 
-    // TODO(crbug.com/dawn/839): Investigate why this test fails with WARP.
-    DAWN_SUPPRESS_TEST_IF(IsWARP());
-
-    uint32_t max = GetSupportedLimits().limits.maxComputeWorkgroupsPerDimension;
+    uint32_t max = GetSupportedLimits().maxComputeWorkgroupsPerDimension;
 
     // Two dispatches: first is no-op
     IndirectTest({max + 1, 1, 1, 2, 3, 4}, {0, 3 * sizeof(uint32_t)});

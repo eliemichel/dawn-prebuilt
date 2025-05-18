@@ -273,6 +273,7 @@ class DawnTestBase {
 
     bool IsIntelGen9() const;
     bool IsIntelGen12() const;
+    bool IsIntelGen12OrLater() const;
 
     bool IsWindows() const;
     bool IsLinux() const;
@@ -287,6 +288,7 @@ class DawnTestBase {
     bool IsBackendValidationEnabled() const;
     bool IsFullBackendValidationEnabled() const;
     bool IsCompatibilityMode() const;
+    bool IsCPU() const;
     bool RunSuppressedTests() const;
 
     bool IsDXC() const;
@@ -343,11 +345,9 @@ class DawnTestBase {
     // Mock callbacks tracking errors and destruction. These are strict mocks because any errors or
     // device loss that aren't expected should result in test failures and not just some warnings
     // printed to stdout.
-    testing::StrictMock<
-        testing::MockCppCallback<void (*)(const wgpu::Device&, wgpu::ErrorType, wgpu::StringView)>>
+    testing::StrictMock<testing::MockCppCallback<wgpu::UncapturedErrorCallback<void>*>>
         mDeviceErrorCallback;
-    testing::StrictMock<testing::MockCppCallback<
-        void (*)(const wgpu::Device&, wgpu::DeviceLostReason, wgpu::StringView)>>
+    testing::StrictMock<testing::MockCppCallback<wgpu::DeviceLostCallback<void>*>>
         mDeviceLostCallback;
 
     // Helper methods to implement the EXPECT_ macros
@@ -616,12 +616,12 @@ class DawnTestBase {
     // code path to handle the situation when not all features are supported.
     virtual std::vector<wgpu::FeatureName> GetRequiredFeatures();
 
-    virtual wgpu::RequiredLimits GetRequiredLimits(const wgpu::SupportedLimits&);
+    virtual wgpu::Limits GetRequiredLimits(const wgpu::Limits&);
 
     const TestAdapterProperties& GetAdapterProperties() const;
 
-    wgpu::SupportedLimits GetAdapterLimits();
-    wgpu::SupportedLimits GetSupportedLimits();
+    wgpu::Limits GetAdapterLimits();
+    wgpu::Limits GetSupportedLimits();
 
     uint64_t GetDeprecationWarningCountForTesting() const;
 

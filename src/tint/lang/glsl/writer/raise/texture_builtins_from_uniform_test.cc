@@ -49,14 +49,12 @@ namespace {
 using GlslWriter_TextureBuiltinsFromUniformTest = core::ir::transform::TransformTest;
 
 TEST_F(GlslWriter_TextureBuiltinsFromUniformTest, TextureNumLevels) {
-    auto* t = b.Var(ty.ptr(
-        handle, ty.Get<core::type::SampledTexture>(core::type::TextureDimension::k2d, ty.f32()),
-        read_write));
+    auto* t = b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2d, ty.f32()),
+                           read_write));
     t->SetBindingPoint(0, 0);
     b.ir.root_block->Append(t);
 
-    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    func->SetWorkgroupSize(1, 1, 1);
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         auto* tex = b.Load(t);
         b.Let("len", b.Call(ty.u32(), core::BuiltinFn::kTextureNumLevels, tex));
@@ -65,10 +63,10 @@ TEST_F(GlslWriter_TextureBuiltinsFromUniformTest, TextureNumLevels) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<f32>, read_write> = var @binding_point(0, 0)
+  %1:ptr<handle, texture_2d<f32>, read_write> = var undef @binding_point(0, 0)
 }
 
-%main = @compute @workgroup_size(1, 1, 1) func():void {
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
     %3:texture_2d<f32> = load %1
     %4:u32 = textureNumLevels %3
@@ -86,10 +84,10 @@ TintTextureUniformData = struct @align(4) {
 }
 
 $B1: {  # root
-  %1:ptr<uniform, TintTextureUniformData, read> = var @binding_point(0, 30)
+  %1:ptr<uniform, TintTextureUniformData, read> = var undef @binding_point(0, 30)
 }
 
-%main = @compute @workgroup_size(1, 1, 1) func():void {
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
     %3:ptr<uniform, u32, read> = access %1, 0u
     %4:u32 = load %3
@@ -105,14 +103,12 @@ $B1: {  # root
 }
 
 TEST_F(GlslWriter_TextureBuiltinsFromUniformTest, TextureNumSamples) {
-    auto* t = b.Var(ty.ptr(
-        handle, ty.Get<core::type::DepthMultisampledTexture>(core::type::TextureDimension::k2d),
-        read_write));
+    auto* t = b.Var(ty.ptr(handle, ty.depth_multisampled_texture(core::type::TextureDimension::k2d),
+                           read_write));
     t->SetBindingPoint(0, 0);
     b.ir.root_block->Append(t);
 
-    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    func->SetWorkgroupSize(1, 1, 1);
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         auto* tex = b.Load(t);
         b.Let("len", b.Call(ty.u32(), core::BuiltinFn::kTextureNumSamples, tex));
@@ -121,10 +117,10 @@ TEST_F(GlslWriter_TextureBuiltinsFromUniformTest, TextureNumSamples) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_multisampled_2d, read_write> = var @binding_point(0, 0)
+  %1:ptr<handle, texture_depth_multisampled_2d, read_write> = var undef @binding_point(0, 0)
 }
 
-%main = @compute @workgroup_size(1, 1, 1) func():void {
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
     %3:texture_depth_multisampled_2d = load %1
     %4:u32 = textureNumSamples %3
@@ -142,10 +138,10 @@ TintTextureUniformData = struct @align(4) {
 }
 
 $B1: {  # root
-  %1:ptr<uniform, TintTextureUniformData, read> = var @binding_point(0, 30)
+  %1:ptr<uniform, TintTextureUniformData, read> = var undef @binding_point(0, 30)
 }
 
-%main = @compute @workgroup_size(1, 1, 1) func():void {
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
     %3:ptr<uniform, u32, read> = access %1, 0u
     %4:u32 = load %3
@@ -161,14 +157,12 @@ $B1: {  # root
 }
 
 TEST_F(GlslWriter_TextureBuiltinsFromUniformTest, SameBuiltinCalledMultipleTimesTextureNumLevels) {
-    auto* t = b.Var(ty.ptr(
-        handle, ty.Get<core::type::SampledTexture>(core::type::TextureDimension::k2d, ty.f32()),
-        read_write));
+    auto* t = b.Var(ty.ptr(handle, ty.sampled_texture(core::type::TextureDimension::k2d, ty.f32()),
+                           read_write));
     t->SetBindingPoint(0, 0);
     b.ir.root_block->Append(t);
 
-    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    func->SetWorkgroupSize(1, 1, 1);
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         auto* tex = b.Load(t);
         b.Let("len", b.Call(ty.u32(), core::BuiltinFn::kTextureNumLevels, tex));
@@ -178,10 +172,10 @@ TEST_F(GlslWriter_TextureBuiltinsFromUniformTest, SameBuiltinCalledMultipleTimes
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_2d<f32>, read_write> = var @binding_point(0, 0)
+  %1:ptr<handle, texture_2d<f32>, read_write> = var undef @binding_point(0, 0)
 }
 
-%main = @compute @workgroup_size(1, 1, 1) func():void {
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
     %3:texture_2d<f32> = load %1
     %4:u32 = textureNumLevels %3
@@ -201,10 +195,10 @@ TintTextureUniformData = struct @align(4) {
 }
 
 $B1: {  # root
-  %1:ptr<uniform, TintTextureUniformData, read> = var @binding_point(0, 30)
+  %1:ptr<uniform, TintTextureUniformData, read> = var undef @binding_point(0, 30)
 }
 
-%main = @compute @workgroup_size(1, 1, 1) func():void {
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
     %3:ptr<uniform, u32, read> = access %1, 0u
     %4:u32 = load %3
@@ -223,14 +217,12 @@ $B1: {  # root
 }
 
 TEST_F(GlslWriter_TextureBuiltinsFromUniformTest, SameBuiltinCalledMultipleTimesTextureNumSamples) {
-    auto* t = b.Var(ty.ptr(
-        handle, ty.Get<core::type::DepthMultisampledTexture>(core::type::TextureDimension::k2d),
-        read_write));
+    auto* t = b.Var(ty.ptr(handle, ty.depth_multisampled_texture(core::type::TextureDimension::k2d),
+                           read_write));
     t->SetBindingPoint(0, 0);
     b.ir.root_block->Append(t);
 
-    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    func->SetWorkgroupSize(1, 1, 1);
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         auto* tex = b.Load(t);
         b.Let("len", b.Call(ty.u32(), core::BuiltinFn::kTextureNumSamples, tex));
@@ -240,10 +232,10 @@ TEST_F(GlslWriter_TextureBuiltinsFromUniformTest, SameBuiltinCalledMultipleTimes
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_multisampled_2d, read_write> = var @binding_point(0, 0)
+  %1:ptr<handle, texture_depth_multisampled_2d, read_write> = var undef @binding_point(0, 0)
 }
 
-%main = @compute @workgroup_size(1, 1, 1) func():void {
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
     %3:texture_depth_multisampled_2d = load %1
     %4:u32 = textureNumSamples %3
@@ -263,10 +255,10 @@ TintTextureUniformData = struct @align(4) {
 }
 
 $B1: {  # root
-  %1:ptr<uniform, TintTextureUniformData, read> = var @binding_point(0, 30)
+  %1:ptr<uniform, TintTextureUniformData, read> = var undef @binding_point(0, 30)
 }
 
-%main = @compute @workgroup_size(1, 1, 1) func():void {
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
     %3:ptr<uniform, u32, read> = access %1, 0u
     %4:u32 = load %3

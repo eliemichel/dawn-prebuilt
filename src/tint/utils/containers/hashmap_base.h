@@ -39,7 +39,15 @@
 #include "src/tint/utils/math/hash.h"
 #include "src/tint/utils/math/math.h"
 #include "src/tint/utils/memory/aligned_storage.h"
-#include "src/tint/utils/traits/traits.h"
+#include "src/tint/utils/rtti/traits.h"
+
+// This file implements a custom STL style container & iterator in a performant manner, using
+// C-style data access. It is not unexpected that -Wunsafe-buffer-usage triggers in this code, since
+// the type of dynamic access being used cannot be guaranteed to be safe via static analysis.
+// Attempting to change this code in simple ways to quiet these errors either a) negatively affects
+// the performance by introducing unneeded copes, or b) uses typing shenanigans to work around the
+// warning that other linters/analyses are unhappy with.
+TINT_BEGIN_DISABLE_WARNING(UNSAFE_BUFFER_USAGE);
 
 namespace tint {
 
@@ -466,7 +474,7 @@ class HashmapBase {
         count_ = other.count_;
     }
 
-    /// Moves the the hashmap @p other into this empty hashmap.
+    /// Moves the hashmap @p other into this empty hashmap.
     /// @note This hashmap must be empty before calling
     /// @param other the hashmap to move
     void Move(HashmapBase&& other) {
@@ -680,5 +688,7 @@ class HashmapBase {
 };
 
 }  // namespace tint
+
+TINT_END_DISABLE_WARNING(UNSAFE_BUFFER_USAGE);
 
 #endif  // SRC_TINT_UTILS_CONTAINERS_HASHMAP_BASE_H_

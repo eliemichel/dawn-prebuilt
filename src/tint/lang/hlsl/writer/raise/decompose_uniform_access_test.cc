@@ -81,9 +81,9 @@ TEST_F(HlslWriterDecomposeUniformAccessTest, UniformAccessChainFromUnnamedAccess
     auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* x = b.Access(ty.ptr(uniform, sb, core::Access::kRead), var, 2_u);
-        auto* y = b.Access(ty.ptr(uniform, Inner, core::Access::kRead), x->Result(0), 1_u);
+        auto* y = b.Access(ty.ptr(uniform, Inner, core::Access::kRead), x->Result(), 1_u);
         b.Let("b",
-              b.Load(b.Access(ty.ptr(uniform, ty.u32(), core::Access::kRead), y->Result(0), 1_u)));
+              b.Load(b.Access(ty.ptr(uniform, ty.u32(), core::Access::kRead), y->Result(), 1_u)));
         b.Return(func);
     });
 
@@ -99,7 +99,7 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<uniform, array<SB, 4>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<SB, 4>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -127,7 +127,7 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<uniform, array<vec4<u32>, 8>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<vec4<u32>, 8>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -165,9 +165,9 @@ TEST_F(HlslWriterDecomposeUniformAccessTest, UniformAccessChainFromLetAccessChai
     b.Append(func->Block(), [&] {
         auto* x = b.Let("x", var);
         auto* y =
-            b.Let("y", b.Access(ty.ptr(uniform, Inner, core::Access::kRead), x->Result(0), 1_u));
+            b.Let("y", b.Access(ty.ptr(uniform, Inner, core::Access::kRead), x->Result(), 1_u));
         auto* z =
-            b.Let("z", b.Access(ty.ptr(uniform, ty.f32(), core::Access::kRead), y->Result(0), 0_u));
+            b.Let("z", b.Access(ty.ptr(uniform, ty.f32(), core::Access::kRead), y->Result(), 0_u));
         b.Let("a", b.Load(z));
         b.Return(func);
     });
@@ -183,7 +183,7 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<uniform, SB, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, SB, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -212,7 +212,7 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<uniform, array<vec4<u32>, 2>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<vec4<u32>, 2>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -247,7 +247,7 @@ TEST_F(HlslWriterDecomposeUniformAccessTest, UniformAccessVectorLoad) {
 
     auto* src = R"(
 $B1: {  # root
-  %v:ptr<uniform, vec4<f32>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, vec4<f32>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -270,7 +270,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %v:ptr<uniform, array<vec4<u32>, 1>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<vec4<u32>, 1>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -316,7 +316,7 @@ TEST_F(HlslWriterDecomposeUniformAccessTest, UniformAccessScalarF16) {
 
     auto* src = R"(
 $B1: {  # root
-  %v:ptr<uniform, f16, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, f16, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -331,7 +331,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %v:ptr<uniform, array<vec4<u32>, 1>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<vec4<u32>, 1>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -367,7 +367,7 @@ TEST_F(HlslWriterDecomposeUniformAccessTest, UniformAccessVectorF16) {
 
     auto* src = R"(
 $B1: {  # root
-  %v:ptr<uniform, vec4<f16>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, vec4<f16>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -391,7 +391,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %v:ptr<uniform, array<vec4<u32>, 1>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<vec4<u32>, 1>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -399,15 +399,15 @@ $B1: {  # root
     %x:u32 = let 1u
     %4:ptr<uniform, vec4<u32>, read> = access %v, 0u
     %5:vec4<u32> = load %4
-    %6:vec4<f16> = bitcast %5
-    %a:vec4<f16> = let %6
-    %8:ptr<uniform, vec4<u32>, read> = access %v, 0u
-    %9:u32 = load_vector_element %8, 0u
-    %10:f32 = hlsl.f16tof32 %9
-    %11:f16 = convert %10
-    %b:f16 = let %11
-    %13:u32 = convert %x
-    %14:u32 = mul %13, 2u
+    %6:vec2<u32> = swizzle %5, xy
+    %7:vec4<f16> = bitcast %6
+    %a:vec4<f16> = let %7
+    %9:ptr<uniform, vec4<u32>, read> = access %v, 0u
+    %10:u32 = load_vector_element %9, 0u
+    %11:f32 = hlsl.f16tof32 %10
+    %12:f16 = convert %11
+    %b:f16 = let %12
+    %14:u32 = mul %x, 2u
     %15:u32 = div %14, 16u
     %16:ptr<uniform, vec4<u32>, read> = access %v, %15
     %17:u32 = mod %14, 16u
@@ -454,7 +454,7 @@ TEST_F(HlslWriterDecomposeUniformAccessTest, UniformAccessMat2x3F16) {
 
     auto* src = R"(
 $B1: {  # root
-  %v:ptr<uniform, mat2x3<f16>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, mat2x3<f16>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -475,7 +475,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %v:ptr<uniform, array<vec4<u32>, 1>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<vec4<u32>, 1>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -484,32 +484,45 @@ $B1: {  # root
     %a:mat2x3<f16> = let %3
     %6:ptr<uniform, vec4<u32>, read> = access %v, 0u
     %7:vec4<u32> = load %6
-    %8:vec4<f16> = bitcast %7
-    %9:vec3<f16> = swizzle %8, xyz
-    %b:vec3<f16> = let %9
-    %11:ptr<uniform, vec4<u32>, read> = access %v, 0u
-    %12:u32 = load_vector_element %11, 3u
-    %13:f32 = hlsl.f16tof32 %12
-    %14:f16 = convert %13
-    %c:f16 = let %14
+    %8:vec2<u32> = swizzle %7, zw
+    %9:vec4<f16> = bitcast %8
+    %10:vec3<f16> = swizzle %9, xyz
+    %b:vec3<f16> = let %10
+    %12:ptr<uniform, vec4<u32>, read> = access %v, 0u
+    %13:u32 = load_vector_element %12, 3u
+    %14:f32 = hlsl.f16tof32 %13
+    %15:f16 = convert %14
+    %c:f16 = let %15
     ret
   }
 }
 %4 = func(%start_byte_offset:u32):mat2x3<f16> {
   $B3: {
-    %17:u32 = div %start_byte_offset, 16u
-    %18:ptr<uniform, vec4<u32>, read> = access %v, %17
-    %19:vec4<u32> = load %18
-    %20:vec4<f16> = bitcast %19
-    %21:vec3<f16> = swizzle %20, xyz
-    %22:u32 = add 8u, %start_byte_offset
-    %23:u32 = div %22, 16u
-    %24:ptr<uniform, vec4<u32>, read> = access %v, %23
-    %25:vec4<u32> = load %24
-    %26:vec4<f16> = bitcast %25
-    %27:vec3<f16> = swizzle %26, xyz
-    %28:mat2x3<f16> = construct %21, %27
-    ret %28
+    %18:u32 = div %start_byte_offset, 16u
+    %19:ptr<uniform, vec4<u32>, read> = access %v, %18
+    %20:u32 = mod %start_byte_offset, 16u
+    %21:u32 = div %20, 4u
+    %22:vec4<u32> = load %19
+    %23:vec2<u32> = swizzle %22, zw
+    %24:vec2<u32> = swizzle %22, xy
+    %25:bool = eq %21, 2u
+    %26:vec2<u32> = hlsl.ternary %24, %23, %25
+    %27:vec4<f16> = bitcast %26
+    %28:vec3<f16> = swizzle %27, xyz
+    %29:u32 = add 8u, %start_byte_offset
+    %30:u32 = div %29, 16u
+    %31:ptr<uniform, vec4<u32>, read> = access %v, %30
+    %32:u32 = mod %29, 16u
+    %33:u32 = div %32, 4u
+    %34:vec4<u32> = load %31
+    %35:vec2<u32> = swizzle %34, zw
+    %36:vec2<u32> = swizzle %34, xy
+    %37:bool = eq %33, 2u
+    %38:vec2<u32> = hlsl.ternary %36, %35, %37
+    %39:vec4<f16> = bitcast %38
+    %40:vec3<f16> = swizzle %39, xyz
+    %41:mat2x3<f16> = construct %28, %40
+    ret %41
   }
 }
 )";
@@ -533,7 +546,7 @@ TEST_F(HlslWriterDecomposeUniformAccessTest, UniformAccessMatrix) {
 
     auto* src = R"(
 $B1: {  # root
-  %v:ptr<uniform, mat4x4<f32>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, mat4x4<f32>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -554,7 +567,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %v:ptr<uniform, array<vec4<u32>, 4>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<vec4<u32>, 4>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -616,7 +629,7 @@ TEST_F(HlslWriterDecomposeUniformAccessTest, UniformAccessArray) {
 
     auto* src = R"(
 $B1: {  # root
-  %v:ptr<uniform, array<vec3<f32>, 5>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<vec3<f32>, 5>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -634,7 +647,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %v:ptr<uniform, array<vec4<u32>, 5>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<vec4<u32>, 5>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -651,7 +664,7 @@ $B1: {  # root
 }
 %4 = func(%start_byte_offset:u32):array<vec3<f32>, 5> {
   $B3: {
-    %a_1:ptr<function, array<vec3<f32>, 5>, read_write> = var, array<vec3<f32>, 5>(vec3<f32>(0.0f))  # %a_1: 'a'
+    %a_1:ptr<function, array<vec3<f32>, 5>, read_write> = var array<vec3<f32>, 5>(vec3<f32>(0.0f))  # %a_1: 'a'
     loop [i: $B4, b: $B5, c: $B6] {  # loop_1
       $B4: {  # initializer
         next_iteration 0u  # -> $B5
@@ -702,7 +715,7 @@ TEST_F(HlslWriterDecomposeUniformAccessTest, UniformAccessArrayWhichCanHaveSizes
 
     auto* src = R"(
 $B1: {  # root
-  %v:ptr<uniform, array<vec3<f32>, 42>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<vec3<f32>, 42>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -720,7 +733,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %v:ptr<uniform, array<vec4<u32>, 42>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<vec4<u32>, 42>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -737,7 +750,7 @@ $B1: {  # root
 }
 %4 = func(%start_byte_offset:u32):array<vec3<f32>, 42> {
   $B3: {
-    %a_1:ptr<function, array<vec3<f32>, 42>, read_write> = var, array<vec3<f32>, 42>(vec3<f32>(0.0f))  # %a_1: 'a'
+    %a_1:ptr<function, array<vec3<f32>, 42>, read_write> = var array<vec3<f32>, 42>(vec3<f32>(0.0f))  # %a_1: 'a'
     loop [i: $B4, b: $B5, c: $B6] {  # loop_1
       $B4: {  # initializer
         next_iteration 0u  # -> $B5
@@ -798,7 +811,7 @@ SB = struct @align(4) {
 }
 
 $B1: {  # root
-  %v:ptr<uniform, SB, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, SB, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -821,7 +834,7 @@ SB = struct @align(4) {
 }
 
 $B1: {  # root
-  %v:ptr<uniform, array<vec4<u32>, 1>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<vec4<u32>, 1>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -905,7 +918,7 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<uniform, SB, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, SB, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -938,7 +951,7 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<uniform, array<vec4<u32>, 10>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<vec4<u32>, 10>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -1014,7 +1027,7 @@ $B1: {  # root
 }
 %37 = func(%start_byte_offset_4:u32):array<vec3<f32>, 5> {  # %start_byte_offset_4: 'start_byte_offset'
   $B7: {
-    %a_1:ptr<function, array<vec3<f32>, 5>, read_write> = var, array<vec3<f32>, 5>(vec3<f32>(0.0f))  # %a_1: 'a'
+    %a_1:ptr<function, array<vec3<f32>, 5>, read_write> = var array<vec3<f32>, 5>(vec3<f32>(0.0f))  # %a_1: 'a'
     loop [i: $B8, b: $B9, c: $B10] {  # loop_1
       $B8: {  # initializer
         next_iteration 0u  # -> $B9
@@ -1076,7 +1089,7 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<uniform, SB, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, SB, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -1099,7 +1112,7 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<uniform, array<vec4<u32>, 2>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<vec4<u32>, 2>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -1151,7 +1164,7 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<uniform, SB, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, SB, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -1176,7 +1189,7 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<uniform, array<vec4<u32>, 4>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<vec4<u32>, 4>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -1190,7 +1203,7 @@ $B1: {  # root
 }
 %7 = func(%start_byte_offset:u32):array<vec4<i32>, 2> {
   $B3: {
-    %a_1:ptr<function, array<vec4<i32>, 2>, read_write> = var, array<vec4<i32>, 2>(vec4<i32>(0i))  # %a_1: 'a'
+    %a_1:ptr<function, array<vec4<i32>, 2>, read_write> = var array<vec4<i32>, 2>(vec4<i32>(0i))  # %a_1: 'a'
     loop [i: $B4, b: $B5, c: $B6] {  # loop_1
       $B4: {  # initializer
         next_iteration 0u  # -> $B5
@@ -1223,7 +1236,7 @@ $B1: {  # root
 }
 %4 = func(%start_byte_offset_1:u32):array<vec4<f32>, 2> {  # %start_byte_offset_1: 'start_byte_offset'
   $B8: {
-    %a_2:ptr<function, array<vec4<f32>, 2>, read_write> = var, array<vec4<f32>, 2>(vec4<f32>(0.0f))  # %a_2: 'a'
+    %a_2:ptr<function, array<vec4<f32>, 2>, read_write> = var array<vec4<f32>, 2>(vec4<f32>(0.0f))  # %a_2: 'a'
     loop [i: $B9, b: $B10, c: $B11] {  # loop_2
       $B9: {  # initializer
         next_iteration 0u  # -> $B10
@@ -1290,7 +1303,7 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<uniform, array<SB, 2>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<SB, 2>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -1316,7 +1329,7 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<uniform, array<vec4<u32>, 8>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<vec4<u32>, 8>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -1330,7 +1343,7 @@ $B1: {  # root
 }
 %7 = func(%start_byte_offset:u32):array<vec4<i32>, 2> {
   $B3: {
-    %a_1:ptr<function, array<vec4<i32>, 2>, read_write> = var, array<vec4<i32>, 2>(vec4<i32>(0i))  # %a_1: 'a'
+    %a_1:ptr<function, array<vec4<i32>, 2>, read_write> = var array<vec4<i32>, 2>(vec4<i32>(0i))  # %a_1: 'a'
     loop [i: $B4, b: $B5, c: $B6] {  # loop_1
       $B4: {  # initializer
         next_iteration 0u  # -> $B5
@@ -1363,7 +1376,7 @@ $B1: {  # root
 }
 %4 = func(%start_byte_offset_1:u32):array<vec4<f32>, 2> {  # %start_byte_offset_1: 'start_byte_offset'
   $B8: {
-    %a_2:ptr<function, array<vec4<f32>, 2>, read_write> = var, array<vec4<f32>, 2>(vec4<f32>(0.0f))  # %a_2: 'a'
+    %a_2:ptr<function, array<vec4<f32>, 2>, read_write> = var array<vec4<f32>, 2>(vec4<f32>(0.0f))  # %a_2: 'a'
     loop [i: $B9, b: $B10, c: $B11] {  # loop_2
       $B9: {  # initializer
         next_iteration 0u  # -> $B10
@@ -1430,7 +1443,7 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<uniform, array<SB, 2>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<SB, 2>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -1455,7 +1468,7 @@ SB = struct @align(16) {
 }
 
 $B1: {  # root
-  %v:ptr<uniform, array<vec4<u32>, 8>, read> = var @binding_point(0, 0)
+  %v:ptr<uniform, array<vec4<u32>, 8>, read> = var undef @binding_point(0, 0)
 }
 
 %foo = @fragment func():void {
@@ -1469,7 +1482,7 @@ $B1: {  # root
 }
 %7 = func(%start_byte_offset:u32):array<vec4<i32>, 2> {
   $B3: {
-    %a_1:ptr<function, array<vec4<i32>, 2>, read_write> = var, array<vec4<i32>, 2>(vec4<i32>(0i))  # %a_1: 'a'
+    %a_1:ptr<function, array<vec4<i32>, 2>, read_write> = var array<vec4<i32>, 2>(vec4<i32>(0i))  # %a_1: 'a'
     loop [i: $B4, b: $B5, c: $B6] {  # loop_1
       $B4: {  # initializer
         next_iteration 0u  # -> $B5
@@ -1502,7 +1515,7 @@ $B1: {  # root
 }
 %4 = func(%start_byte_offset_1:u32):array<vec4<f32>, 2> {  # %start_byte_offset_1: 'start_byte_offset'
   $B8: {
-    %a_2:ptr<function, array<vec4<f32>, 2>, read_write> = var, array<vec4<f32>, 2>(vec4<f32>(0.0f))  # %a_2: 'a'
+    %a_2:ptr<function, array<vec4<f32>, 2>, read_write> = var array<vec4<f32>, 2>(vec4<f32>(0.0f))  # %a_2: 'a'
     loop [i: $B9, b: $B10, c: $B11] {  # loop_2
       $B9: {  # initializer
         next_iteration 0u  # -> $B10

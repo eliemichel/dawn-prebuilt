@@ -44,10 +44,10 @@ namespace dawn::native {
 
 class BufferBase;
 
-struct UploadHandle {
-    raw_ptr<uint8_t> mappedBuffer = nullptr;
-    uint64_t startOffset = 0;
-    raw_ptr<BufferBase> stagingBuffer = nullptr;
+struct UploadReservation {
+    void* mappedPointer = nullptr;
+    uint64_t offsetInBuffer = 0;
+    Ref<BufferBase> buffer;
 };
 
 class DynamicUploader {
@@ -55,34 +55,30 @@ class DynamicUploader {
     explicit DynamicUploader(DeviceBase* device);
     ~DynamicUploader() = default;
 
-    // We add functions to Release StagingBuffers to the DynamicUploader as there's
-    // currently no place to track the allocated staging buffers such that they're freed after
-    // pending commands are finished. This should be changed when better resource allocation is
-    // implemented.
-    void ReleaseStagingBuffer(Ref<BufferBase> stagingBuffer);
+    // Transiently makes a reservation for an upload area for the functor passed in argument.
+    template <typename F>
+    MaybeError WithUploadReservation(uint64_t size, uint64_t offsetAlignment, F&& f) {
+        UploadReservation reservation;
+        DAWN_TRY_ASSIGN(reservation, Reserve(size, offsetAlignment));
+        return f(reservation);
+    }
 
-    ResultOrError<UploadHandle> Allocate(uint64_t allocationSize,
-                                         ExecutionSerial serial,
-                                         uint64_t offsetAlignment);
     void Deallocate(ExecutionSerial lastCompletedSerial, bool freeAll = false);
 
-    bool ShouldFlush();
+    bool ShouldFlush() const;
 
   private:
     static constexpr uint64_t kRingBufferSize = 4 * 1024 * 1024;
-    uint64_t GetTotalAllocatedSize();
+    uint64_t GetTotalAllocatedSize() const;
 
     struct RingBuffer {
         Ref<BufferBase> mStagingBuffer;
         RingBufferAllocator mAllocator;
     };
 
-    ResultOrError<UploadHandle> AllocateInternal(uint64_t allocationSize,
-                                                 ExecutionSerial serial,
-                                                 uint64_t offsetAlignment);
+    ResultOrError<UploadReservation> Reserve(uint64_t size, uint64_t offsetAlignment);
 
     std::vector<std::unique_ptr<RingBuffer>> mRingBuffers;
-    SerialQueue<ExecutionSerial, Ref<BufferBase>> mReleasedStagingBuffers;
     raw_ptr<DeviceBase> mDevice;
 };
 }  // namespace dawn::native

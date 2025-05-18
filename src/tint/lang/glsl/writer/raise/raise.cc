@@ -41,6 +41,7 @@
 #include "src/tint/lang/core/ir/transform/multiplanar_external_texture.h"
 #include "src/tint/lang/core/ir/transform/prepare_push_constants.h"
 #include "src/tint/lang/core/ir/transform/preserve_padding.h"
+#include "src/tint/lang/core/ir/transform/prevent_infinite_loops.h"
 #include "src/tint/lang/core/ir/transform/remove_continue_in_switch.h"
 #include "src/tint/lang/core/ir/transform/remove_terminator_args.h"
 #include "src/tint/lang/core/ir/transform/rename_conflicts.h"
@@ -75,6 +76,8 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
     if (!options.disable_robustness) {
         core::ir::transform::RobustnessConfig config{};
         RUN_TRANSFORM(core::ir::transform::Robustness, module, config);
+
+        RUN_TRANSFORM(core::ir::transform::PreventInfiniteLoops, module);
     }
 
     // PreparePushConstants must come before any transform that needs internal push constants.
@@ -107,6 +110,16 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
     // So, in order to move this later we'd need to update Dawn to send the _post-remapping_ data.
     RUN_TRANSFORM(raise::TextureBuiltinsFromUniform, module,
                   options.bindings.texture_builtins_from_uniform);
+
+    // Note, this must come after Robustness as it may add `arrayLength`.
+    // This also needs to come before binding remapper as Dawn inserts _pre-remapping_ binding
+    // information. So, in order to move this later we'd need to update Dawn to send the
+    // _post-remapping_ data.
+    if (options.use_array_length_from_uniform) {
+        RUN_TRANSFORM(core::ir::transform::ArrayLengthFromUniform, module,
+                      options.bindings.array_length_from_uniform.ubo_binding,
+                      options.bindings.array_length_from_uniform.bindpoint_to_size_index);
+    }
 
     tint::transform::multiplanar::BindingsMap multiplanar_map{};
     RemapperData remapper_data{};
@@ -176,7 +189,6 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
     {
         // Must come after DirectVariableAccess
         raise::TexturePolyfillConfig tex_config;
-        tex_config.sampler_texture_to_name = options.bindings.sampler_texture_to_name;
         tex_config.placeholder_sampler_bind_point = options.bindings.placeholder_sampler_bind_point;
         tex_config.texture_builtins_from_uniform = options.bindings.texture_builtins_from_uniform;
         RUN_TRANSFORM(raise::TexturePolyfill, module, tex_config);
@@ -191,7 +203,8 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
     RUN_TRANSFORM(core::ir::transform::AddEmptyEntryPoint, module);
 
     RUN_TRANSFORM(raise::ShaderIO, module,
-                  raise::ShaderIOConfig{push_constant_layout.Get(), options.depth_range_offsets});
+                  raise::ShaderIOConfig{push_constant_layout.Get(), options.depth_range_offsets,
+                                        options.bgra_swizzle_locations});
 
     // Must come after ShaderIO as it operates on module-scope `in` variables.
     RUN_TRANSFORM(

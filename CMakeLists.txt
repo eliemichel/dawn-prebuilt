@@ -26,7 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 # As per https://github.com/google/oss-policies-info/blob/main/foundational-cxx-support-matrix.md
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.16)
 
 # - Since we are past CMake 3.12 we can add CONFIGURE_DEPENDS to DawnGenerator to rerun CMake
 #   in case any of the generator files changes. We should also remove the CACHE "" FORCE stuff to
@@ -52,6 +52,12 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_DEBUG_POSTFIX "")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(IS_DEBUG_BUILD 0)
+string(TOUPPER "${CMAKE_BUILD_TYPE}" build_type)
+if ((NOT ${build_type} STREQUAL "RELEASE") AND (NOT ${build_type} STREQUAL "RELWITHDEBINFO"))
+  set(IS_DEBUG_BUILD 1)
+endif()
+
 include(DawnSetIfNotDefined)
 
 set(DAWN_BUILD_GEN_DIR "${Dawn_BINARY_DIR}/gen" CACHE PATH "Directory that contains generated source files")
@@ -59,6 +65,9 @@ set(DAWN_GENERATOR_DIR "${Dawn_SOURCE_DIR}/generator" CACHE PATH "Directory that
 set(DAWN_SRC_DIR "${Dawn_SOURCE_DIR}/src" CACHE PATH "Directory that contains source files for dawn")
 set(DAWN_INCLUDE_DIR "${Dawn_SOURCE_DIR}/include" CACHE PATH "Directory that contains public headers for dawn")
 set(DAWN_TEMPLATE_DIR "${DAWN_GENERATOR_DIR}/templates" CACHE PATH "Directory that contains templates for generators")
+
+# Emscripten.cmake toolchain sets this variable to `0`; otherwise, it's undefined, so set it to 1.
+set_if_not_defined(EMSCRIPTEN 0 "1 if building with Emscripten")
 
 ################################################################################
 # Configuration options
@@ -71,18 +80,18 @@ set(ENABLE_NULL ON)
 set(ENABLE_OPENGLES OFF)
 set(ENABLE_DESKTOP_GL OFF)
 set(ENABLE_VULKAN OFF)
-set(ENABLE_EMSCRIPTEN OFF)
 set(ENABLE_SPIRV_VALIDATION OFF)
 set(USE_WAYLAND OFF)
 set(USE_X11 OFF)
 set(USE_WINDOWS_UI OFF)
 set(BUILD_SAMPLES OFF)
+set(BUILD_TESTS OFF)
 set(TARGET_MACOS OFF)
-if (CMAKE_SYSTEM_NAME MATCHES "Emscripten")
+if (EMSCRIPTEN)
   # Only the samples are supported for Emscripten at the moment.
   # TODO(crbug.com/42240181): Make dawn_end2end_tests work too.
-  set(ENABLE_EMSCRIPTEN ON)
   set(BUILD_SAMPLES ON)
+  set(BUILD_TESTS ON)
   set(ENABLE_NULL OFF)
 elseif (WIN32)
   set(ENABLE_D3D11 ON)
@@ -115,7 +124,7 @@ endif()
 
 # GLFW is not supported in UWP
 set(DAWN_SUPPORTS_GLFW_FOR_WINDOWING OFF)
-if (NOT ENABLE_EMSCRIPTEN AND ((WIN32 AND NOT WINDOWS_STORE) OR (UNIX AND NOT ANDROID)))
+if (NOT EMSCRIPTEN AND ((WIN32 AND NOT WINDOWS_STORE) OR (UNIX AND NOT ANDROID)))
     set(DAWN_SUPPORTS_GLFW_FOR_WINDOWING ON)
 endif()
 
@@ -139,20 +148,13 @@ option(DAWN_ENABLE_OPENGLES "Enable compilation of the OpenGL ES backend" ${ENAB
 option(DAWN_ENABLE_VULKAN "Enable compilation of the Vulkan backend" ${ENABLE_VULKAN})
 option(DAWN_ENABLE_SPIRV_VALIDATION "Enable validation of SPIR-V" ${ENABLE_SPIRV_VALIDATION})
 
-# Optional path to Emscripten toolchain to allow for building WASM.
-option(DAWN_EMSCRIPTEN_TOOLCHAIN "Directory in which to find Emscripten toolchain" "")
-set(DAWN_ENABLE_EMSCRIPTEN OFF)
-if (NOT ${DAWN_EMSCRIPTEN_TOOLCHAIN} STREQUAL "" AND ENABLE_EMSCRIPTEN)
-    set(DAWN_ENABLE_EMSCRIPTEN ON)
-endif()
-
+message(STATUS "Dawn building using Emscripten toolchain: ${EMSCRIPTEN}")
 message(STATUS "Dawn build D3D11 backend: ${DAWN_ENABLE_D3D11}")
 message(STATUS "Dawn build D3D12 backend: ${DAWN_ENABLE_D3D12}")
 message(STATUS "Dawn build Metal backend: ${DAWN_ENABLE_METAL}")
 message(STATUS "Dawn build Vulkan backend: ${DAWN_ENABLE_VULKAN}")
 message(STATUS "Dawn build OpenGL backend: ${DAWN_ENABLE_DESKTOP_GL}")
 message(STATUS "Dawn build OpenGL ES backend: ${DAWN_ENABLE_OPENGLES}")
-message(STATUS "Dawn build Emscripten: ${DAWN_ENABLE_EMSCRIPTEN}")
 message(STATUS "Dawn build Null backend: ${DAWN_ENABLE_NULL}")
 message(STATUS "")
 message(STATUS "Dawn enable SPIR-V validation: ${DAWN_ENABLE_SPIRV_VALIDATION}")
@@ -174,6 +176,7 @@ option(DAWN_DXC_ENABLE_ASSERTS_IN_NDEBUG "Enable DXC asserts in non-debug builds
 option(DAWN_TARGET_MACOS "Manually link Apple core frameworks" ${TARGET_MACOS})
 
 option(DAWN_BUILD_SAMPLES "Enables building Dawn's samples" ${BUILD_SAMPLES})
+option(DAWN_BUILD_TESTS "Enables building Dawn's tests" ${BUILD_TESTS})
 option(DAWN_BUILD_NODE_BINDINGS "Enables building Dawn's NodeJS bindings" OFF)
 option(DAWN_ENABLE_SWIFTSHADER "Enables building Swiftshader as part of the build and Vulkan adapter discovery" OFF)
 option(DAWN_BUILD_BENCHMARKS "Build Dawn benchmarks" OFF)
@@ -217,7 +220,7 @@ option(TINT_ENABLE_INSTALL "Enable install step for Tint libraries" OFF)
 option(TINT_BUILD_CMD_TOOLS "Build the Tint command line tools" ON)
 
 if (DAWN_BUILD_SAMPLES)
-  if (NOT DAWN_USE_GLFW AND NOT DAWN_ENABLE_EMSCRIPTEN)
+  if (NOT DAWN_USE_GLFW AND NOT EMSCRIPTEN)
     message(SEND_ERROR "Dawn samples require GLFW or Emscripten")
   endif()
 endif()
@@ -240,12 +243,11 @@ endif()
 
 option(TINT_BUILD_IR_BINARY "Build IR binary format support" ${TINT_DEFAULT_BUILD_IR_BINARY})
 option(TINT_BUILD_FUZZERS "Build fuzzers" OFF)
-option(TINT_BUILD_IR_FUZZER "Build IR fuzzer" OFF)
 option(TINT_BUILD_BENCHMARKS "Build Tint benchmarks" OFF)
 option(TINT_BUILD_TESTS "Build tests" ON)
 option(TINT_BUILD_AS_OTHER_OS "Override OS detection to force building of *_other.cc files" OFF)
 
-if (DAWN_ENABLE_EMSCRIPTEN)
+if (EMSCRIPTEN)
   # Skip tint tests in emscripten build
   set(TINT_BUILD_TESTS OFF)
   # Skip GLSL validation in Emscripten
@@ -254,6 +256,7 @@ endif()
 
 option(TINT_BUILD_TINTD "Build the WGSL language server" OFF)
 
+option(TINT_ENABLE_IR_VALIDATION "Enable IR validation for backend codegen" ${IS_DEBUG_BUILD})
 option(TINT_ENABLE_BREAK_IN_DEBUGGER "Enable tint::debugger::Break()" OFF)
 option(TINT_CHECK_CHROMIUM_STYLE "Check for [chromium-style] issues during build" OFF)
 option(TINT_RANDOMIZE_HASHES "Randomize the hash seed value to detect non-deterministic output" OFF)
@@ -272,11 +275,11 @@ message(STATUS "Tint build command line executable tools: ${TINT_BUILD_CMD_TOOLS
 message(STATUS "Tint install: ${TINT_ENABLE_INSTALL}")
 message(STATUS "Tint build fuzzers: ${TINT_BUILD_FUZZERS}")
 message(STATUS "Tint build IR binary: ${TINT_BUILD_IR_BINARY}")
-message(STATUS "Tint build IR fuzzer: ${TINT_BUILD_IR_FUZZER}")
 message(STATUS "Tint build benchmarks: ${TINT_BUILD_BENCHMARKS}")
 message(STATUS "Tint build tests: ${TINT_BUILD_TESTS}")
 message(STATUS "Tint build tintd: ${TINT_BUILD_TINTD}")
 message(STATUS "")
+message(STATUS "Tint enable IR validation: ${TINT_ENABLE_IR_VALIDATION}")
 message(STATUS "Tint enable break in debugger: ${TINT_ENABLE_BREAK_IN_DEBUGGER}")
 message(STATUS "Tint build checking [chromium-style]: ${TINT_CHECK_CHROMIUM_STYLE}")
 message(STATUS "Tint randomize hashes: ${TINT_RANDOMIZE_HASHES}")
@@ -285,6 +288,7 @@ message(STATUS "")
 set_if_not_defined(DAWN_THIRD_PARTY_DIR "${Dawn_SOURCE_DIR}/third_party" "Directory in which to find third-party dependencies.")
 
 set_if_not_defined(DAWN_ABSEIL_DIR "${DAWN_THIRD_PARTY_DIR}/abseil-cpp" "Directory in which to find Abseil")
+
 set_if_not_defined(DAWN_GLFW_DIR "${DAWN_THIRD_PARTY_DIR}/glfw" "Directory in which to find GLFW")
 set_if_not_defined(DAWN_JINJA2_DIR "${DAWN_THIRD_PARTY_DIR}/jinja2" "Directory in which to find Jinja2")
 set_if_not_defined(DAWN_MARKUPSAFE_DIR "${DAWN_THIRD_PARTY_DIR}/markupsafe" "Directory in which to find MarkupSafe")
@@ -293,6 +297,7 @@ set_if_not_defined(DAWN_SWIFTSHADER_DIR "${DAWN_THIRD_PARTY_DIR}/swiftshader" "D
 set_if_not_defined(DAWN_PROTOBUF_DIR "${DAWN_THIRD_PARTY_DIR}/protobuf" "Directory in which to find protobuf")
 set_if_not_defined(DAWN_LPM_DIR "${DAWN_THIRD_PARTY_DIR}/libprotobuf-mutator/src" "Directory in which to find libprotobuf")
 set_if_not_defined(DAWN_EMDAWNWEBGPU_DIR "${DAWN_THIRD_PARTY_DIR}/emdawnwebgpu" "Directory in which to find Dawn specific Emscripten bindings")
+set_if_not_defined(DAWN_GOOGLETEST_DIR "${DAWN_THIRD_PARTY_DIR}/googletest/src" "Directory in which to find googletest")
 
 set_if_not_defined(DAWN_SPIRV_TOOLS_DIR "${DAWN_THIRD_PARTY_DIR}/spirv-tools/src" "Directory in which to find SPIRV-Tools")
 set_if_not_defined(DAWN_SPIRV_HEADERS_DIR "${DAWN_THIRD_PARTY_DIR}/spirv-headers/src" "Directory in which to find SPIRV-Headers")
@@ -335,16 +340,6 @@ message(STATUS "Dawn fetch dependencies: ${DAWN_FETCH_DEPENDENCIES}")
 message(STATUS "Dawn build monolithic library: ${DAWN_BUILD_MONOLITHIC_LIBRARY}")
 message(STATUS "")
 
-# Optional path to Emscripten toolchain to allow for building WASM.
-set_if_not_defined(DAWN_EMSCRIPTEN_TOOLCHAIN "" "Directory in which to find Emscripten toolchain")
-set(DAWN_ENABLE_EMSCRIPTEN OFF)
-if (NOT ${DAWN_EMSCRIPTEN_TOOLCHAIN} STREQUAL "" AND ENABLE_EMSCRIPTEN)
-    set(DAWN_ENABLE_EMSCRIPTEN ON)
-endif()
-
-message(STATUS "Dawn Emscripten toolchain: ${DAWN_EMSCRIPTEN_TOOLCHAIN}")
-message(STATUS "")
-
 # Much of the backend code is shared among desktop OpenGL and OpenGL ES
 if (${DAWN_ENABLE_DESKTOP_GL} OR ${DAWN_ENABLE_OPENGLES})
     set(DAWN_ENABLE_OPENGL ON)
@@ -383,20 +378,12 @@ include(DawnCompilerWarningFlags)
 include(DawnInitializeBuildType)
 include(DawnLibrary)
 
-set(IS_ASAN ${DAWN_ENABLE_ASAN})
-
 if (NOT ${TINT_LIB_FUZZING_ENGINE_LINK_OPTIONS} STREQUAL "")
   message(STATUS "Using provided LIB_FUZZING_ENGINE options: ${TINT_LIB_FUZZING_ENGINE_LINK_OPTIONS}")
 endif()
 
 find_package(Python3 REQUIRED)
 message(STATUS "Dawn: using python at ${Python3_EXECUTABLE}")
-
-set(IS_DEBUG_BUILD 0)
-string(TOUPPER "${CMAKE_BUILD_TYPE}" build_type)
-if ((NOT ${build_type} STREQUAL "RELEASE") AND (NOT ${build_type} STREQUAL "RELWITHDEBINFO"))
-  set(IS_DEBUG_BUILD 1)
-endif()
 
 # Compile definitions for the internal config
 if (DAWN_ALWAYS_ASSERT OR IS_DEBUG_BUILD)
@@ -474,7 +461,7 @@ add_subdirectory(src/tint)
 
 set(BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS_SAVED})
 
-if (DAWN_ENABLE_D3D11 OR DAWN_ENABLE_D3D12 OR DAWN_ENABLE_METAL OR DAWN_ENABLE_NULL OR DAWN_ENABLE_DESKTOP_GL OR DAWN_ENABLE_OPENGLES OR DAWN_ENABLE_VULKAN OR DAWN_ENABLE_EMSCRIPTEN)
+if (DAWN_ENABLE_D3D11 OR DAWN_ENABLE_D3D12 OR DAWN_ENABLE_METAL OR DAWN_ENABLE_NULL OR DAWN_ENABLE_DESKTOP_GL OR DAWN_ENABLE_OPENGLES OR DAWN_ENABLE_VULKAN OR EMSCRIPTEN)
     add_subdirectory(generator)
     # Note that we must add Emscripten directory first to ensure the correct
     # headers will be exported upwards.

@@ -40,7 +40,6 @@
 #include "src/tint/lang/hlsl/type/rasterizer_ordered_texture_2d.h"
 #include "src/tint/utils/containers/vector.h"
 #include "src/tint/utils/ice/ice.h"
-#include "src/tint/utils/result/result.h"
 
 namespace tint::hlsl::writer::raise {
 namespace {
@@ -64,28 +63,26 @@ struct State {
     // A Rasterizer Order View (ROV)
     struct ROV {
         core::ir::Var* var;
-        core::type::Type* subtype;
+        const core::type::Type* subtype;
     };
     // Create ROV root variables, one per member of `pixel_local_struct`
     Vector<ROV, 4> CreateROVs(const core::type::Struct* pixel_local_struct) {
         Vector<ROV, 4> rovs;
         // Create ROVs for each member of the struct
         for (auto* mem : pixel_local_struct->Members()) {
-            auto options_texel_format = options.attachment_formats.find(mem->Index());
-            auto options_binding = options.attachments.find(mem->Index());
-            if (options_texel_format == options.attachment_formats.end() ||
-                options_binding == options.attachments.end()) {
+            auto iter = options.attachments.find(mem->Index());
+            if (iter == options.attachments.end()) {
                 TINT_ICE() << "missing options for member at index " << mem->Index();
             }
             core::TexelFormat texel_format;
-            switch (options_texel_format->second) {
-                case PixelLocalOptions::TexelFormat::kR32Sint:
+            switch (iter->second.format) {
+                case PixelLocalAttachment::TexelFormat::kR32Sint:
                     texel_format = core::TexelFormat::kR32Sint;
                     break;
-                case PixelLocalOptions::TexelFormat::kR32Uint:
+                case PixelLocalAttachment::TexelFormat::kR32Uint:
                     texel_format = core::TexelFormat::kR32Uint;
                     break;
-                case PixelLocalOptions::TexelFormat::kR32Float:
+                case PixelLocalAttachment::TexelFormat::kR32Float:
                     texel_format = core::TexelFormat::kR32Float;
                     break;
                 default:
@@ -95,7 +92,7 @@ struct State {
 
             auto* rov_ty = ty.Get<hlsl::type::RasterizerOrderedTexture2D>(texel_format, subtype);
             auto* rov = b.Var("pixel_local_" + mem->Name().Name(), ty.ptr<handle>(rov_ty));
-            rov->SetBindingPoint(options.group_index, options_binding->second);
+            rov->SetBindingPoint(options.group_index, iter->second.index);
 
             ir.root_block->Append(rov);
             rovs.Emplace(rov, subtype);
@@ -135,11 +132,11 @@ struct State {
         }
 
         // Change the address space of the var from 'pixel_local' to 'private'
-        pixel_local_var->Result(0)->SetType(ty.ptr<private_>(pixel_local_struct));
+        pixel_local_var->Result()->SetType(ty.ptr<private_>(pixel_local_struct));
         // As well as the usages
-        for (auto& usage : pixel_local_var->Result(0)->UsagesUnsorted()) {
-            if (auto* ptr = usage->instruction->Result(0)->Type()->As<core::type::Pointer>()) {
-                usage->instruction->Result(0)->SetType(ty.ptr<private_>(ptr->StoreType()));
+        for (auto& usage : pixel_local_var->Result()->UsagesUnsorted()) {
+            if (auto* ptr = usage->instruction->Result()->Type()->As<core::type::Pointer>()) {
+                usage->instruction->Result()->SetType(ty.ptr<private_>(ptr->StoreType()));
             }
         }
 
@@ -179,12 +176,13 @@ struct State {
                 TINT_ASSERT(mem_ty->Is<core::type::Scalar>());
                 core::ir::Instruction* from =
                     b.Access(ty.ptr<private_>(mem_ty), pixel_local_var, u32(mem->Index()));
+                from = b.Load(from);
                 if (mem_ty != rov.subtype) {
                     // ROV and struct member types don't match
                     from = b.Convert(rov.subtype, from);
                 }
                 // Store requires a vec4
-                from = b.Swizzle(ty.vec4(rov.subtype), from, {0, 0, 0, 0});
+                from = b.Construct(ty.vec4(rov.subtype), from);
                 core::ir::Instruction* to = b.Load(rov.var);
                 b.Call<hlsl::ir::BuiltinCall>(  //
                     ty.void_(), hlsl::BuiltinFn::kTextureStore, to, coord, from);
@@ -194,7 +192,6 @@ struct State {
 
     /// Process the module.
     void Process() {
-        TINT_ASSERT(options.attachments.size() == options.attachment_formats.size());
         if (options.attachments.size() == 0) {
             return;
         }
@@ -202,8 +199,8 @@ struct State {
         // Inline pointers
         for (auto* inst : ir.Instructions()) {
             if (auto* l = inst->As<core::ir::Let>()) {
-                if (l->Result(0)->Type()->Is<core::type::Pointer>()) {
-                    l->Result(0)->ReplaceAllUsesWith(l->Value());
+                if (l->Result()->Type()->Is<core::type::Pointer>()) {
+                    l->Result()->ReplaceAllUsesWith(l->Value());
                     l->Destroy();
                 }
             }
@@ -214,7 +211,7 @@ struct State {
         const core::type::Struct* pixel_local_struct = nullptr;
         for (auto* inst : *ir.root_block) {
             if (auto* var = inst->As<core::ir::Var>()) {
-                auto* ptr = var->Result(0)->Type()->As<core::type::Pointer>();
+                auto* ptr = var->Result()->Type()->As<core::type::Pointer>();
                 if (ptr->AddressSpace() == core::AddressSpace::kPixelLocal) {
                     pixel_local_var = var;
                     pixel_local_struct = ptr->StoreType()->As<core::type::Struct>();
@@ -222,7 +219,7 @@ struct State {
                 }
             }
         }
-        if (!pixel_local_var || !pixel_local_var->Result(0)->IsUsed()) {
+        if (!pixel_local_var || !pixel_local_var->Result()->IsUsed()) {
             return;
         }
         if (!pixel_local_struct) {
@@ -235,7 +232,7 @@ struct State {
         auto rovs = CreateROVs(pixel_local_struct);
 
         for (auto f : ir.functions) {
-            if (f->Stage() == core::ir::Function::PipelineStage::kFragment) {
+            if (f->IsFragment()) {
                 ProcessFragmentEntryPoint(f, pixel_local_var, pixel_local_struct, rovs);
             }
         }
@@ -245,7 +242,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> PixelLocal(core::ir::Module& ir, const PixelLocalConfig& config) {
-    auto result = ValidateAndDumpIfNeeded(ir, "PixelLocal transform",
+    auto result = ValidateAndDumpIfNeeded(ir, "hlsl.PixelLocal",
                                           core::ir::Capabilities{
                                               core::ir::Capability::kAllowClipDistancesOnF32,
                                           });

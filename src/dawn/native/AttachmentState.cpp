@@ -141,7 +141,7 @@ AttachmentState::AttachmentState(DeviceBase* device,
         if (colorAttachment.loadOp == wgpu::LoadOp::ExpandResolveTexture) {
             mExpandResolveInfo.attachmentsToExpandResolve.set(i);
         }
-        mExpandResolveInfo.resolveTargetsMask.set(i, colorAttachment.resolveTarget);
+        mExpandResolveInfo.resolveTargetsMask.set(i, colorAttachment.resolveTarget != nullptr);
     }
 
     // Gather the depth-stencil information.
@@ -329,7 +329,8 @@ AttachmentState::ComputeStorageAttachmentPackingInColorAttachments() const {
     auto availableSlots = ~mColorAttachmentsSet;
     for (size_t i = 0; i < mStorageAttachmentSlots.size(); i++) {
         DAWN_ASSERT(!availableSlots.none());
-        auto slot = ColorAttachmentIndex(uint8_t(ScanForward(availableSlots.to_ulong())));
+        auto slot = ColorAttachmentIndex(
+            uint8_t(ScanForward(static_cast<uint32_t>(availableSlots.to_ulong()))));
         availableSlots.reset(slot);
         result[i] = slot;
     }

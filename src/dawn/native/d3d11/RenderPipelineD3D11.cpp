@@ -53,7 +53,6 @@ D3D11_INPUT_CLASSIFICATION VertexStepModeFunction(wgpu::VertexStepMode mode) {
             return D3D11_INPUT_PER_VERTEX_DATA;
         case wgpu::VertexStepMode::Instance:
             return D3D11_INPUT_PER_INSTANCE_DATA;
-        case wgpu::VertexStepMode::VertexBufferNotUsed:
         case wgpu::VertexStepMode::Undefined:
             break;
     }
@@ -244,14 +243,14 @@ MaybeError RenderPipeline::InitializeImpl() {
     // slots.
     uint32_t colorAttachments =
         static_cast<uint8_t>(GetHighestBitIndexPlusOne(GetColorAttachmentsMask()));
-    uint32_t unusedUAVs = ToBackend(GetLayout())->GetUnusedUAVBindingCount();
-    uint32_t usedUAVs = ToBackend(GetLayout())->GetTotalUAVBindingCount() - unusedUAVs;
+    uint32_t startUAVIndex = ToBackend(GetLayout())->GetUAVStartIndex(SingleShaderStage::Fragment);
+    uint32_t usedUAVs = ToBackend(GetLayout())->GetUAVCount(SingleShaderStage::Fragment);
     // TODO(dawn:1814): Move the validation to the frontend, if we eventually regard it as a compat
     // restriction.
-    DAWN_INVALID_IF(colorAttachments > unusedUAVs,
+    DAWN_INVALID_IF(colorAttachments > startUAVIndex,
                     "The pipeline uses up to color attachment %u, but there are only %u remaining "
                     "slots because the pipeline uses %u UAVs",
-                    colorAttachments, unusedUAVs, usedUAVs);
+                    colorAttachments, startUAVIndex, usedUAVs);
 
     SetLabelImpl();
     return {};
@@ -262,7 +261,7 @@ RenderPipeline::~RenderPipeline() = default;
 void RenderPipeline::ApplyNow(const ScopedSwapStateCommandRecordingContext* commandContext,
                               const std::array<float, 4>& blendColor,
                               uint32_t stencilReference) {
-    auto* d3d11DeviceContext = commandContext->GetD3D11DeviceContext4();
+    auto* d3d11DeviceContext = commandContext->GetD3D11DeviceContext3();
     d3d11DeviceContext->IASetPrimitiveTopology(mD3DPrimitiveTopology);
     // TODO(dawn:1753): deduplicate these objects in the backend eventually, and to avoid redundant
     // state setting.
@@ -277,14 +276,14 @@ void RenderPipeline::ApplyNow(const ScopedSwapStateCommandRecordingContext* comm
 
 void RenderPipeline::ApplyBlendState(const ScopedSwapStateCommandRecordingContext* commandContext,
                                      const std::array<float, 4>& blendColor) {
-    auto* d3d11DeviceContext = commandContext->GetD3D11DeviceContext4();
+    auto* d3d11DeviceContext = commandContext->GetD3D11DeviceContext3();
     d3d11DeviceContext->OMSetBlendState(mBlendState.Get(), blendColor.data(), GetSampleMask());
 }
 
 void RenderPipeline::ApplyDepthStencilState(
     const ScopedSwapStateCommandRecordingContext* commandContext,
     uint32_t stencilReference) {
-    auto* d3d11DeviceContext = commandContext->GetD3D11DeviceContext4();
+    auto* d3d11DeviceContext = commandContext->GetD3D11DeviceContext3();
     d3d11DeviceContext->OMSetDepthStencilState(mDepthStencilState.Get(), stencilReference);
 }
 
@@ -486,16 +485,18 @@ MaybeError RenderPipeline::InitializeShaders() {
         if (GetAttachmentState()->HasPixelLocalStorage()) {
             const std::vector<wgpu::TextureFormat>& storageAttachmentSlots =
                 GetAttachmentState()->GetStorageAttachmentSlots();
-            DAWN_ASSERT(ToBackend(GetLayout())->GetTotalUAVBindingCount() >
-                        storageAttachmentSlots.size());
+            const uint32_t uavEndIndex =
+                ToBackend(GetLayout())->GetUAVStartIndex(SingleShaderStage::Fragment) +
+                ToBackend(GetLayout())->GetUAVCount(SingleShaderStage::Fragment);
+            DAWN_ASSERT(uavEndIndex > storageAttachmentSlots.size());
             // Currently all the pixel local storage UAVs are allocated at the last several UAV
             // slots. For example, when there are 4 pixel local storage attachments, we will
             // allocate register u60 to u63 for them.
-            uint32_t basePixelLocalAttachmentIndex =
-                ToBackend(GetLayout())->GetTotalUAVBindingCount() -
-                static_cast<uint32_t>(storageAttachmentSlots.size());
+            const uint32_t basePixelLocalAttachmentIndex =
+                uavEndIndex - static_cast<uint32_t>(storageAttachmentSlots.size());
             for (size_t i = 0; i < storageAttachmentSlots.size(); i++) {
-                pixelLocalOptions->attachments[i] = basePixelLocalAttachmentIndex + i;
+                auto& attachment = pixelLocalOptions->attachments[i];
+                attachment.index = basePixelLocalAttachmentIndex + i;
 
                 static_assert(
                     RenderPipelineBase::kImplicitPLSSlotFormat == wgpu::TextureFormat::R32Uint,
@@ -504,16 +505,16 @@ MaybeError RenderPipeline::InitializeShaders() {
                         // We use R32Uint as default pixel local storage attachment format
                     case wgpu::TextureFormat::Undefined:
                     case wgpu::TextureFormat::R32Uint:
-                        pixelLocalOptions->attachment_formats[i] =
-                            tint::hlsl::writer::PixelLocalOptions::TexelFormat::kR32Uint;
+                        attachment.format =
+                            tint::hlsl::writer::PixelLocalAttachment::TexelFormat::kR32Uint;
                         break;
                     case wgpu::TextureFormat::R32Sint:
-                        pixelLocalOptions->attachment_formats[i] =
-                            tint::hlsl::writer::PixelLocalOptions::TexelFormat::kR32Sint;
+                        attachment.format =
+                            tint::hlsl::writer::PixelLocalAttachment::TexelFormat::kR32Sint;
                         break;
                     case wgpu::TextureFormat::R32Float:
-                        pixelLocalOptions->attachment_formats[i] =
-                            tint::hlsl::writer::PixelLocalOptions::TexelFormat::kR32Float;
+                        attachment.format =
+                            tint::hlsl::writer::PixelLocalAttachment::TexelFormat::kR32Float;
                         break;
                     default:
                         DAWN_UNREACHABLE();

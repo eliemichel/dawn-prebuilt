@@ -31,19 +31,18 @@
 #include <functional>
 #include <iostream>
 #include <string>
-#include <string_view>
 #include <thread>
 
 #include "src/tint/utils/containers/vector.h"
 #include "src/tint/utils/ice/ice.h"
 #include "src/tint/utils/macros/defer.h"
-#include "src/tint/utils/macros/static_init.h"
 
 #if TINT_BUILD_WGSL_READER
+#include "src/tint/cmd/fuzz/ir/helpers/substitute_overrides_config.h"
 #include "src/tint/cmd/fuzz/wgsl/fuzz.h"
+#include "src/tint/lang/core/ir/transform/substitute_overrides.h"
 #include "src/tint/lang/core/ir/validator.h"
 #include "src/tint/lang/wgsl/ast/module.h"
-#include "src/tint/lang/wgsl/helpers/apply_substitute_overrides.h"
 #include "src/tint/lang/wgsl/reader/reader.h"
 #endif
 
@@ -59,12 +58,6 @@ Vector<IRFuzzer, 32>& Fuzzers() {
 }
 
 thread_local std::string_view currently_running;
-
-[[noreturn]] void TintInternalCompilerErrorReporter(const tint::InternalCompilerError& err) {
-    std::cerr << "ICE while running fuzzer: '" << currently_running << "'" << '\n';
-    std::cerr << err.Error() << "\n";
-    __builtin_trap();
-}
 #endif  // TINT_BUILD_IR_BINARY
 
 void Register(const IRFuzzer& fuzzer) {
@@ -76,19 +69,49 @@ void Register(const IRFuzzer& fuzzer) {
             if (program.AST().Enables().Any(tint::wgsl::reader::IsUnsupportedByIR)) {
                 return;
             }
-            auto transformed = tint::wgsl::ApplySubstituteOverrides(program);
-            auto& src = transformed ? transformed.value() : program;
-            if (!src.IsValid()) {
-                return;
-            }
-            auto ir = tint::wgsl::reader::ProgramToLoweredIR(src);
+            auto cfg = SubstituteOverridesConfig(program);
+
+            auto ir = tint::wgsl::reader::ProgramToLoweredIR(program);
             if (ir != Success) {
                 return;
             }
+
+            auto substituteOverridesResult =
+                tint::core::ir::transform::SubstituteOverrides(ir.Get(), cfg);
+            if (substituteOverridesResult != Success) {
+                return;
+            }
+
+            // Workgroup sizes < 1 are checked by Dawn and the Tint binary,
+            // should be skipped by the fuzzer.
+            for (auto func : ir->functions) {
+                if (func->Stage() != tint::core::ir::Function::PipelineStage::kCompute) {
+                    continue;
+                }
+
+                auto wg = func->WorkgroupSize().value();
+                for (auto value : wg) {
+                    auto* cnst = value->As<core::ir::Constant>();
+                    TINT_ASSERT(cnst);
+
+                    auto val = cnst->Value()->ValueAs<int32_t>();
+                    if (val < 1) {
+                        return;
+                    }
+                }
+            }
+
             if (auto val = core::ir::Validate(ir.Get()); val != Success) {
                 TINT_ICE() << val.Failure();
             }
-            fn(ir.Get(), data);
+            // Copy relevant options from wgsl::Context to ir::Context
+            fuzz::ir::Context ir_context;
+            ir_context.options.filter = context.options.filter;
+            ir_context.options.run_concurrently = context.options.run_concurrently;
+            ir_context.options.verbose = context.options.verbose;
+            ir_context.options.dxc = context.options.dxc;
+            ir_context.options.dump = context.options.dump;
+            [[maybe_unused]] auto result = fn(ir.Get(), ir_context, data);
         },
     });
 #endif
@@ -102,11 +125,12 @@ void Register(const IRFuzzer& fuzzer) {
 void Run(const std::function<tint::core::ir::Module()>& acquire_module,
          const Options& options,
          Slice<const std::byte> data) {
-    tint::SetInternalCompilerErrorReporter(&TintInternalCompilerErrorReporter);
-
     // Ensure that fuzzers are sorted. Without this, the fuzzers may be registered in any order,
     // leading to non-determinism, which we must avoid.
     TINT_STATIC_INIT(Fuzzers().Sort([](auto& a, auto& b) { return a.name < b.name; }));
+
+    Context context;
+    context.options = options;
 
     bool ran_atleast_once = false;
 
@@ -122,14 +146,36 @@ void Run(const std::function<tint::core::ir::Module()>& acquire_module,
             }
             ran_atleast_once = true;
 
-            threads.Push(std::thread([i, &acquire_module, &data, &options] {
+            threads.Push(std::thread([i, &acquire_module, &data, &context] {
                 auto& fuzzer = Fuzzers()[i];
                 currently_running = fuzzer.name;
-                if (options.verbose) {
+                if (context.options.verbose) {
                     std::cout << " • [" << i << "] Running: " << currently_running << '\n';
                 }
                 auto mod = acquire_module();
-                fuzzer.fn(mod, data);
+                if (tint::core::ir::Validate(mod, fuzzer.pre_capabilities) != tint::Success) {
+                    // Failing before running indicates that this input violates the pre-conditions
+                    // for this pass, so should be skipped.
+                    if (context.options.verbose) {
+                        std::cout
+                            << "   Failed to validate against fuzzer capabilities before running\n";
+                    }
+                    return;
+                }
+
+                if (auto result = fuzzer.fn(mod, context, data); result != Success) {
+                    if (context.options.verbose) {
+                        std::cout << "   Failed to execute fuzzer: " << result.Failure() << "\n";
+                    }
+                }
+
+                if (auto result = tint::core::ir::Validate(mod, fuzzer.post_capabilities);
+                    result != Success) {
+                    // Failing after running indicates the pass is doing something unexpected and
+                    // has violated its own post-conditions.
+                    TINT_ICE() << "Failed to validate against fuzzer capabilities after running:\n"
+                               << result.Failure() << "\n";
+                }
             }));
         }
         for (auto& thread : threads) {
@@ -148,7 +194,30 @@ void Run(const std::function<tint::core::ir::Module()>& acquire_module,
                 std::cout << " • Running: " << currently_running << '\n';
             }
             auto mod = acquire_module();
-            fuzzer.fn(mod, data);
+            if (tint::core::ir::Validate(mod, fuzzer.pre_capabilities) != tint::Success) {
+                // Failing before running indicates that this input violates the pre-conditions for
+                // this pass, so should be skipped.
+                if (options.verbose) {
+                    std::cout
+                        << "   Failed to validate against fuzzer capabilities before running\n";
+                }
+                continue;
+            }
+
+            if (auto result = fuzzer.fn(mod, context, data); result != Success) {
+                if (options.verbose) {
+                    std::cout << "   Failed to execute fuzzer: " << result.Failure() << "\n";
+                }
+                continue;
+            }
+
+            if (auto result = tint::core::ir::Validate(mod, fuzzer.post_capabilities);
+                result != Success) {
+                // Failing after running indicates the pass is doing something unexpected and
+                // has violated its own post-conditions.
+                TINT_ICE() << "Failed to validate against fuzzer capabilities after running:\n"
+                           << result.Failure() << "\n";
+            }
         }
     }
 

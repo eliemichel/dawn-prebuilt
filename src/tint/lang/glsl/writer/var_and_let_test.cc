@@ -36,8 +36,7 @@ namespace tint::glsl::writer {
 namespace {
 
 TEST_F(GlslWriterTest, Let) {
-    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    func->SetWorkgroupSize(1, 1, 1);
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         b.Let("a", 2_f);
         b.Return(func);
@@ -53,8 +52,7 @@ void main() {
 }
 
 TEST_F(GlslWriterTest, LetValue) {
-    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    func->SetWorkgroupSize(1, 1, 1);
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         auto* a = b.Let("a", 2_f);
         b.Let("b", a);
@@ -72,8 +70,7 @@ void main() {
 }
 
 TEST_F(GlslWriterTest, Var) {
-    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    func->SetWorkgroupSize(1, 1, 1);
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         b.Var("a", 1_u);
         b.Return(func);
@@ -89,8 +86,7 @@ void main() {
 }
 
 TEST_F(GlslWriterTest, VarZeroInit) {
-    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kCompute);
-    func->SetWorkgroupSize(1, 1, 1);
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         b.Var("a", function, ty.f32());
         b.Return(func);
@@ -127,7 +123,6 @@ TEST_F(GlslWriterTest, VarInBuiltin) {
         core::IOAttributes attrs = {};
         attrs.builtin = core::BuiltinValue::kLocalInvocationIndex;
         v->SetAttributes(attrs);
-        v->SetBindingPoint(1, 2);
     });
 
     ASSERT_TRUE(Generate()) << err_ << output_.glsl;
@@ -150,11 +145,11 @@ TEST_F(GlslWriterTest, VarIn) {
 
     auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] { b.Return(func); });
-    ASSERT_TRUE(Generate({}, tint::ast::PipelineStage::kFragment)) << err_ << output_.glsl;
+    ASSERT_TRUE(Generate({}, core::ir::Function::PipelineStage::kFragment)) << err_ << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
-layout(location = 1) flat in uint v;
+layout(location = 1) flat in uint tint_interstage_location1;
 void main() {
 }
 )");
@@ -172,7 +167,7 @@ TEST_F(GlslWriterTest, VarOutBlendSrc) {
     auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] { b.Return(func); });
 
-    ASSERT_TRUE(Generate({}, tint::ast::PipelineStage::kFragment)) << err_ << output_.glsl;
+    ASSERT_TRUE(Generate({}, core::ir::Function::PipelineStage::kFragment)) << err_ << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(#extension GL_EXT_blend_func_extended: require
 precision highp float;
 precision highp int;
@@ -195,7 +190,7 @@ TEST_F(GlslWriterTest, VarOutBuiltin) {
     auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] { b.Return(func); });
 
-    ASSERT_TRUE(Generate({}, tint::ast::PipelineStage::kFragment)) << err_ << output_.glsl;
+    ASSERT_TRUE(Generate({}, core::ir::Function::PipelineStage::kFragment)) << err_ << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
@@ -215,7 +210,7 @@ TEST_F(GlslWriterTest, VarBuiltinSampleIndex_ES) {
     auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] { b.Return(func); });
 
-    ASSERT_TRUE(Generate({}, tint::ast::PipelineStage::kFragment)) << err_ << output_.glsl;
+    ASSERT_TRUE(Generate({}, core::ir::Function::PipelineStage::kFragment)) << err_ << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(#extension GL_OES_sample_variables: require
 precision highp float;
 precision highp int;
@@ -236,7 +231,7 @@ TEST_F(GlslWriterTest, VarBuiltinSampleMask_ES) {
     auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] { b.Return(func); });
 
-    ASSERT_TRUE(Generate({}, tint::ast::PipelineStage::kFragment)) << err_ << output_.glsl;
+    ASSERT_TRUE(Generate({}, core::ir::Function::PipelineStage::kFragment)) << err_ << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(#extension GL_OES_sample_variables: require
 precision highp float;
 precision highp int;
@@ -259,7 +254,8 @@ TEST_F(GlslWriterTest, VarBuiltinSampled_NonES) {
 
     Options opts{};
     opts.version = Version(Version::Standard::kDesktop, 4, 6);
-    ASSERT_TRUE(Generate(opts, tint::ast::PipelineStage::kFragment)) << err_ << output_.glsl;
+    ASSERT_TRUE(Generate(opts, core::ir::Function::PipelineStage::kFragment))
+        << err_ << output_.glsl;
     EXPECT_EQ(output_.glsl, R"(#version 460
 precision highp float;
 precision highp int;
@@ -336,11 +332,10 @@ void main() {
 
 TEST_F(GlslWriterTest, VarHandleStorageTexture) {
     b.Append(b.ir.root_block, [&] {
-        auto* v =
-            b.Var("v", ty.ptr(core::AddressSpace::kHandle,
-                              ty.Get<core::type::StorageTexture>(core::type::TextureDimension::k2d,
-                                                                 core::TexelFormat::kR32Float,
-                                                                 core::Access::kWrite, ty.f32())));
+        auto* v = b.Var(
+            "v", ty.ptr(core::AddressSpace::kHandle,
+                        ty.storage_texture(core::type::TextureDimension::k2d,
+                                           core::TexelFormat::kR32Float, core::Access::kWrite)));
         v->SetBindingPoint(0, 1);
     });
 
@@ -355,9 +350,8 @@ void main() {
 
 TEST_F(GlslWriterTest, VarHandleDepthTexture) {
     b.Append(b.ir.root_block, [&] {
-        auto* v =
-            b.Var("v", ty.ptr(core::AddressSpace::kHandle,
-                              ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2d)));
+        auto* v = b.Var("v", ty.ptr(core::AddressSpace::kHandle,
+                                    ty.depth_texture(core::type::TextureDimension::k2d)));
         v->SetBindingPoint(0, 1);
     });
 

@@ -43,11 +43,20 @@ constexpr uint32_t kBindingSize = 8;
 
 class DynamicBufferOffsetTests : public DawnTest {
   protected:
+    wgpu::Limits GetRequiredLimits(const wgpu::Limits& supported) override {
+        // TODO(crbug.com/383593270): Enable all the limits.
+        wgpu::Limits required = {};
+        required.maxStorageBuffersInFragmentStage = supported.maxStorageBuffersInFragmentStage;
+        required.maxStorageBuffersPerShaderStage = supported.maxStorageBuffersPerShaderStage;
+        return required;
+    }
+
     void SetUp() override {
         DawnTest::SetUp();
 
-        mMinUniformBufferOffsetAlignment =
-            GetSupportedLimits().limits.minUniformBufferOffsetAlignment;
+        DAWN_SUPPRESS_TEST_IF(GetSupportedLimits().maxStorageBuffersInFragmentStage < 1);
+
+        mMinUniformBufferOffsetAlignment = GetSupportedLimits().minUniformBufferOffsetAlignment;
 
         // Mix up dynamic and non dynamic resources in one bind group and using not continuous
         // binding number to cover more cases.
@@ -604,10 +613,8 @@ TEST_P(ClampedOOBDynamicBufferOffsetTests, CheckOOBAccess) {
         pipeline = device.CreateComputePipeline(&pipelineDesc);
     }
 
-    uint32_t minUniformBufferOffsetAlignment =
-        GetSupportedLimits().limits.minUniformBufferOffsetAlignment;
-    uint32_t minStorageBufferOffsetAlignment =
-        GetSupportedLimits().limits.minStorageBufferOffsetAlignment;
+    uint32_t minUniformBufferOffsetAlignment = GetSupportedLimits().minUniformBufferOffsetAlignment;
+    uint32_t minStorageBufferOffsetAlignment = GetSupportedLimits().minStorageBufferOffsetAlignment;
 
     uint32_t arrayByteLength = kArrayLength * 4 * sizeof(uint32_t);
 

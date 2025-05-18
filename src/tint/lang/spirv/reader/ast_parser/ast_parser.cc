@@ -33,6 +33,7 @@
 #include <utility>
 
 #include "source/opt/build_module.h"
+#include "spirv-tools/optimizer.hpp"
 #include "src/tint/lang/core/fluent_types.h"
 #include "src/tint/lang/core/type/depth_texture.h"
 #include "src/tint/lang/core/type/multisampled_texture.h"
@@ -92,7 +93,7 @@ class FunctionTraverser {
 
   private:
     void Visit(const spvtools::opt::Function& f) {
-        if (visited_.count(&f)) {
+        if (visited_.count(&f) != 0u) {
             return;
         }
         visited_.insert(&f);
@@ -337,6 +338,22 @@ bool ASTParser::Parse() {
         success_ = false;
         return false;
     }
+
+    // Split combined-image-samplers into separate image and sampler parts.
+    // Sampler bindings numbers get incremented. The increments are propagated
+    // among resource variaables until settling occurs.
+    {
+        spvtools::Optimizer optimizer(kInputEnv);
+        optimizer.SetMessageConsumer(message_consumer_);
+        optimizer.RegisterPass(spvtools::CreateSplitCombinedImageSamplerPass());
+        optimizer.RegisterPass(spvtools::CreateResolveBindingConflictsPass());
+        std::vector<uint32_t> new_binary;
+        if (!optimizer.Run(spv_binary_.data(), spv_binary_.size(), &new_binary)) {
+            return false;
+        }
+        spv_binary_ = std::move(new_binary);
+    }
+
     if (!BuildInternalModule()) {
         return false;
     }
@@ -986,6 +1003,10 @@ const Type* ASTParser::ConvertType(const spvtools::opt::analysis::Integer* int_t
 const Type* ASTParser::ConvertType(const spvtools::opt::analysis::Float* float_ty) {
     if (float_ty->width() == 32) {
         return ty_.F32();
+    }
+    if (float_ty->width() == 16) {
+        Enable(wgsl::Extension::kF16);
+        return ty_.F16();
     }
     Fail() << "unhandled float width: " << float_ty->width();
     return nullptr;
@@ -2103,6 +2124,22 @@ TypedExpression ASTParser::MakeConstantExpressionForScalarSpirvConstant(
                 return TypedExpression{};
             }
         },
+        [&](const F16*) {
+            auto bits = spirv_const->AsScalarConstant()->GetU32BitValue();
+
+            // Section 2.2.1 of the SPIR-V spec guarantees that all integer types
+            // smaller than 32-bits are automatically zero or sign extended to 32-bits.
+            auto val = f16::FromBits(static_cast<uint16_t>(bits));
+
+            if (auto f = core::CheckedConvert<f16>(AFloat(val)); f == Success) {
+                return TypedExpression{ty_.F16(), create<ast::FloatLiteralExpression>(
+                                                      source, static_cast<double>(val.value),
+                                                      ast::FloatLiteralExpression::Suffix::kH)};
+            } else {
+                Fail() << "value cannot be represented as 'f16': " << spirv_const->GetFloat();
+                return TypedExpression{};
+            }
+        },
         [&](const Bool*) {
             const bool value =
                 spirv_const->AsNullConstant() ? false : spirv_const->AsBoolConstant()->value();
@@ -2259,7 +2296,7 @@ const Type* ASTParser::GetSignedIntMatchingShape(const Type* other) {
     if (other == nullptr) {
         Fail() << "no type provided";
     }
-    if (other->Is<F32>() || other->Is<U32>() || other->Is<I32>()) {
+    if (other->IsAnyOf<F32, U32, I32>()) {
         return ty_.I32();
     }
     if (auto* vec_ty = other->As<Vector>()) {
@@ -2274,7 +2311,7 @@ const Type* ASTParser::GetUnsignedIntMatchingShape(const Type* other) {
         Fail() << "no type provided";
         return nullptr;
     }
-    if (other->Is<F32>() || other->Is<U32>() || other->Is<I32>()) {
+    if (other->IsAnyOf<F32, U32, I32>()) {
         return ty_.U32();
     }
     if (auto* vec_ty = other->As<Vector>()) {
