@@ -77,8 +77,8 @@ jobs:
             toolchain: gcc
             c_compiler: gcc
             cpp_compiler: g++
-            # This container provides ABI compatibility with glibc 2.27, for ARMv8.
-            container: dockcross/linux-arm64-lts:latest
+            # NB: I tried container dockcross/linux-arm64-lts with no success.
+            container: null
 
     name: CMake-${{ matrix.os }}-${{ matrix.build_type }}-${{ matrix.toolchain }}
     runs-on: ${{ matrix.os }}
