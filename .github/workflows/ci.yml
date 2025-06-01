@@ -26,18 +26,21 @@ jobs:
       fail-fast: false
 
       # Set up a matrix to run the following 6 configurations:
-      # 1. <Windows, Debug, latest MSVC compiler toolchain on the default runner image, default generator>
-      # 2. <Windows, Release, latest MSVC compiler toolchain on the default runner image, default generator>
-      # 3. <Linux, Debug, latest GCC compiler toolchain in the container, default generator>
-      # 4. <Linux, Release, latest GCC compiler toolchain in the container, default generator>
-      # 5. <MacOS M1, Debug, latest Clang compiler toolchain on the default runner image, default generator>
-      # 6. <MacOS M1, Release, latest Clang compiler toolchain on the default runner image, default generator>
-      # 7. <MacOS x64, Debug, latest Clang compiler toolchain on the default runner image, default generator>
-      # 8. <MacOS x64, Release, latest Clang compiler toolchain on the default runner image, default generator>
+      # 1. <Windows x64, Debug, latest MSVC compiler toolchain on the default runner image, default generator>
+      # 2. <Windows x64, Release, latest MSVC compiler toolchain on the default runner image, default generator>
+      # 3. <Windows aarch64, Debug, latest MSVC compiler toolchain on the default runner image, default generator>
+      # 4. <Windows aarch64, Release, latest MSVC compiler toolchain on the default runner image, default generator>
+      # 5. <Linux x64, Debug, latest GCC compiler toolchain in the container, default generator>
+      # 6. <Linux x64, Release, latest GCC compiler toolchain in the container, default generator>
+      # 7. <Linux aarch64, Debug, latest GCC compiler toolchain in the container, default generator>
+      # 8. <Linux aarch64, Release, latest GCC compiler toolchain in the container, default generator>
+      # 9. <MacOS x64, Debug, latest Clang compiler toolchain on the default runner image, default generator>
+      # 10. <MacOS x64, Release, latest Clang compiler toolchain on the default runner image, default generator>
+      # 11. <MacOS aarch64 (M1, M2, ...), Debug, latest Clang compiler toolchain on the default runner image, default generator>
+      # 12. <MacOS aarch64 (M1, M2, ...), Release, latest Clang compiler toolchain on the default runner image, default generator>
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest, macos-13]
+        os: [windows-latest, windows-11-arm, ubuntu-latest, ubuntu-24.04-arm, macos-13, macos-latest]
         build_type: [Debug, Release]
-        toolchain: [gcc, clang, msvc]
         include:
           - os: macos-latest
             toolchain: clang
@@ -58,6 +61,11 @@ jobs:
             c_compiler: cl
             cpp_compiler: cl
             container: null
+          - os: windows-11-arm
+            toolchain: msvc
+            c_compiler: cl
+            cpp_compiler: cl
+            container: null
           - os: ubuntu-latest
             toolchain: gcc
             c_compiler: gcc
@@ -65,23 +73,12 @@ jobs:
             # The manylinux container is to ensure ABI compatibility with glibc 2.28.
             # This way, the continuous delivery process casts a wide net across many linux distros.
             container: dockcross/manylinux_2_28-x64:latest
-        exclude:
-            - os: macos-latest
-              toolchain: msvc
-            - os: macos-latest
-              toolchain: gcc
-            - os: macos-13
-              toolchain: msvc
-            - os: macos-13
-              toolchain: gcc
-            - os: ubuntu-latest
-              toolchain: msvc
-            - os: ubuntu-latest
-              toolchain: clang
-            - os: windows-latest
-              toolchain: clang
-            - os: windows-latest
-              toolchain: gcc
+          - os: ubuntu-24.04-arm
+            toolchain: gcc
+            c_compiler: gcc
+            cpp_compiler: g++
+            # This container provides ABI compatibility with glibc 2.27, for ARMv8.
+            container: dockcross/linux-arm64-lts:latest
 
     name: CMake-${{ matrix.os }}-${{ matrix.build_type }}-${{ matrix.toolchain }}
     runs-on: ${{ matrix.os }}
