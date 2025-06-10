@@ -16,4 +16,5 @@ if (CMAKE_SYTEM_NAME STREQUAL "Linux")
     # maybe we could use `ccache` in macos.
     set(CMAKE_C_COMPILER_LAUNCHER "sccache" CACHE STRING "")
     set(CMAKE_CXX_COMPILER_LAUNCHER "sccache" CACHE STRING "")
+    set(DAWN_ENABLE_WAYLAND ON CACHE BOOL "")
 endif ()
