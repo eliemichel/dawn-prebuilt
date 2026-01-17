@@ -142,7 +142,7 @@ jobs:
       - name: Package
         run: |
           cmake --install out/${{ matrix.build_type }} --config ${{ matrix.build_type }} --prefix Dawn-${{ github.sha }}-${{ matrix.os }}-${{ matrix.build_type }}-${{ matrix.link_type }}
-          cmake -E tar cvzf Dawn-${{ github.sha }}-${{ matrix.os }}-${{ matrix.build_type }}.tar.gz Dawn-${{ github.sha }}-${{ matrix.os }}-${{ matrix.build_type }}-${{ matrix.link_type }}
+          cmake -E tar cvzf Dawn-${{ github.sha }}-${{ matrix.os }}-${{ matrix.build_type }}-${{ matrix.link_type }}.tar.gz Dawn-${{ github.sha }}-${{ matrix.os }}-${{ matrix.build_type }}-${{ matrix.link_type }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
