@@ -38,6 +38,7 @@ jobs:
         os: [windows-latest, ubuntu-latest, macos-latest, macos-15-intel]
         build_type: [Debug, Release]
         toolchain: [gcc, clang, msvc]
+        link_type: [shared, static]
         include:
           - os: macos-latest
             toolchain: clang
@@ -86,7 +87,7 @@ jobs:
           - os: windows-latest
             toolchain: gcc
 
-    name: CMake-${{ matrix.os }}-${{ matrix.build_type }}-${{ matrix.toolchain }}
+    name: CMake-${{ matrix.os }}-${{ matrix.build_type }}-${{ matrix.toolchain }}-${{ matrix.link_type }}
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container }}
     env:
@@ -133,20 +134,21 @@ jobs:
           -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
           -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DDAWN_BUILD_MONOLITHIC_LIBRARY=${{ matrix.link_type }}
 
       - name: Build
         run: cmake --build out/${{ matrix.build_type }} --config ${{ matrix.build_type }}
 
       - name: Package
         run: |
-          cmake --install out/${{ matrix.build_type }} --config ${{ matrix.build_type }} --prefix Dawn-${{ github.sha }}-${{ matrix.os }}-${{ matrix.build_type }}
-          cmake -E tar cvzf Dawn-${{ github.sha }}-${{ matrix.os }}-${{ matrix.build_type }}.tar.gz Dawn-${{ github.sha }}-${{ matrix.os }}-${{ matrix.build_type }}
+          cmake --install out/${{ matrix.build_type }} --config ${{ matrix.build_type }} --prefix Dawn-${{ github.sha }}-${{ matrix.os }}-${{ matrix.build_type }}-${{ matrix.link_type }}
+          cmake -E tar cvzf Dawn-${{ github.sha }}-${{ matrix.os }}-${{ matrix.build_type }}.tar.gz Dawn-${{ github.sha }}-${{ matrix.os }}-${{ matrix.build_type }}-${{ matrix.link_type }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Dawn-${{ github.sha }}-${{ matrix.os }}-${{ matrix.build_type }}
-          path: Dawn-${{ github.sha }}-${{ matrix.os }}-${{ matrix.build_type }}.tar.gz
+          name: Dawn-${{ github.sha }}-${{ matrix.os }}-${{ matrix.build_type }}-${{ matrix.link_type }}
+          path: Dawn-${{ github.sha }}-${{ matrix.os }}-${{ matrix.build_type }}-${{ matrix.link_type }}.tar.gz
 
   mobile-android:
     strategy:
